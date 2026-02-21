@@ -114,17 +114,17 @@ function KnowledgeGraph() {
           style: {
             'background-color': '#667eea',
             'label': 'data(label)',
-            'width': 'mapData(degree, 0, 20, 40, 80)',
-            'height': 'mapData(degree, 0, 20, 40, 80)',
+            'width': 'mapData(degree, 0, 20, 60, 100)',
+            'height': 'mapData(degree, 0, 20, 60, 100)',
             'text-valign': 'center',
             'text-halign': 'center',
             'color': '#fff',
-            'font-size': '11px',
+            'font-size': '13px',
             'font-weight': 'bold',
             'text-wrap': 'wrap',
-            'text-max-width': '120px',
-            'text-outline-width': 2,
-            'text-outline-color': '#333',
+            'text-max-width': '150px',
+            'text-outline-width': 3,
+            'text-outline-color': '#000',
             'border-width': 2,
             'border-color': '#fff',
           }
@@ -161,8 +161,10 @@ function KnowledgeGraph() {
           style: {
             'background-color': '#f39c12',
             'shape': 'round-rectangle',
-            'width': 70,
-            'height': 45,
+            'width': 100,
+            'height': 60,
+            'font-size': '14px',
+            'text-max-width': '150px',
           }
         },
         {
@@ -187,8 +189,10 @@ function KnowledgeGraph() {
           selector: 'node[category="module"]',
           style: {
             'background-color': '#764ba2',
-            'width': 50,
-            'height': 50,
+            'width': 90,
+            'height': 55,
+            'font-size': '14px',
+            'text-max-width': '150px',
           }
         },
         {
@@ -311,6 +315,71 @@ function KnowledgeGraph() {
             'target-arrow-color': '#c0392b',
             'width': 2.5,
             'line-style': 'solid',
+          }
+        },
+        {
+          selector: 'edge[type="REST"]',
+          style: {
+            'line-color': '#3498db',
+            'target-arrow-color': '#3498db',
+            'width': 2.5,
+            'line-style': 'solid',
+          }
+        },
+        {
+          selector: 'edge[type="EVENT"]',
+          style: {
+            'line-color': '#16a085',
+            'target-arrow-color': '#16a085',
+            'width': 2.5,
+            'line-style': 'dashed',
+          }
+        },
+        {
+          selector: 'edge[type="IMPORT"]',
+          style: {
+            'line-color': '#95a5a6',
+            'target-arrow-color': '#95a5a6',
+            'width': 2,
+            'line-style': 'dotted',
+          }
+        },
+        {
+          selector: 'edge[type="DB_ACCESS"]',
+          style: {
+            'line-color': '#e74c3c',
+            'target-arrow-color': '#e74c3c',
+            'width': 3,
+            'line-style': 'solid',
+          }
+        },
+        {
+          selector: 'edge[type="CIRCULAR"]',
+          style: {
+            'line-color': '#f39c12',
+            'target-arrow-color': '#f39c12',
+            'width': 3,
+            'line-style': 'dashed',
+          }
+        },
+        {
+          selector: 'edge[violation="true"]',
+          style: {
+            'line-color': '#e74c3c',
+            'target-arrow-color': '#e74c3c',
+            'width': 3,
+            'line-style': 'solid',
+            'opacity': 1.0,
+          }
+        },
+        {
+          selector: 'edge[circular="true"]',
+          style: {
+            'line-color': '#f39c12',
+            'target-arrow-color': '#f39c12',
+            'width': 3,
+            'line-style': 'dashed',
+            'opacity': 1.0,
           }
         }
       ],

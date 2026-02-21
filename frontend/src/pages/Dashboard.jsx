@@ -57,14 +57,17 @@ function Dashboard() {
         <h2 className="card-title">Parse Repository</h2>
         <form onSubmit={handleParse}>
           <div className="form-group">
-            <label>Repository URL</label>
+            <label>Repository URL or Organization</label>
             <input
               type="text"
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/user/repo.git"
+              placeholder="https://github.com/user/repo.git or https://github.com/org-name"
               required
             />
+            <small style={{ color: '#666', display: 'block', marginTop: '0.5rem' }}>
+              Enter a repository URL (e.g., https://github.com/user/repo.git) or organization URL (e.g., https://github.com/org-name) to parse all repos
+            </small>
           </div>
           <div className="form-group">
             <label>Branch (optional)</label>
@@ -106,25 +109,43 @@ function Dashboard() {
             <h3>Parsing Complete!</h3>
             <div className="info-grid">
               <div className="info-card">
-                <div className="info-card-label">Files Parsed</div>
+                <div className="info-card-label">{result.graph ? 'Files Parsed' : 'Repositories Parsed'}</div>
                 <div className="info-card-value">{result.files_parsed}</div>
               </div>
               <div className="info-card">
                 <div className="info-card-label">Time Taken</div>
                 <div className="info-card-value">{result.parsing_time.toFixed(2)}s</div>
               </div>
-              <div className="info-card">
-                <div className="info-card-label">Repository</div>
-                <div className="info-card-value">{result.graph?.metadata?.repository_name}</div>
-              </div>
-              <div className="info-card">
-                <div className="info-card-label">Total Elements</div>
-                <div className="info-card-value">{result.graph?.elements?.length || 0}</div>
-              </div>
+              {result.graph ? (
+                <>
+                  <div className="info-card">
+                    <div className="info-card-label">Repository</div>
+                    <div className="info-card-value">{result.graph?.metadata?.repository_name}</div>
+                  </div>
+                  <div className="info-card">
+                    <div className="info-card-label">Total Elements</div>
+                    <div className="info-card-value">{result.graph?.elements?.length || 0}</div>
+                  </div>
+                </>
+              ) : (
+                <div className="info-card" style={{ gridColumn: 'span 2' }}>
+                  <div className="info-card-label">Organization Analysis</div>
+                  <div className="info-card-value">Cross-repo dependency graph generated</div>
+                </div>
+              )}
             </div>
-            <a href="/graph" className="btn btn-secondary" style={{ marginTop: '1rem' }}>
-              View Graph
-            </a>
+            {result.graph ? (
+              <a href="/graph" className="btn btn-secondary" style={{ marginTop: '1rem' }}>
+                View Graph
+              </a>
+            ) : (
+              <div style={{ marginTop: '1rem' }}>
+                <p>Organization analysis complete! The cross-repository dependency graph has been generated and saved.</p>
+                <a href="/graph" className="btn btn-secondary" style={{ marginTop: '0.5rem' }}>
+                  View Dependency Graph
+                </a>
+              </div>
+            )}
           </div>
         )}
       </div>

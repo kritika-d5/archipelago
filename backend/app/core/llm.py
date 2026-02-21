@@ -272,7 +272,7 @@ Database Schema Explanation:"""
             # Build impact chain if requested
             impact_chain = []
             if request.include_impact_chain and affected_elements:
-                from app.knowledge_graph.graph_builder import GraphBuilder
+                from app.agents.graph_agent import GraphBuilder
                 builder = GraphBuilder()
                 for elem_id in affected_elements[:5]:  # Limit to first 5
                     chain = builder.find_impact_chain(codebase_graph, elem_id, request.max_depth)

@@ -4,6 +4,7 @@ import './App.css';
 import Dashboard from './pages/Dashboard';
 import KnowledgeGraph from './pages/KnowledgeGraph';
 import Health from './pages/Health';
+import ArchitectureStudio from './pages/ArchitectureStudio';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
               <a href="/">Dashboard</a>
               <a href="/graph">Graph</a>
               <a href="/health">Health</a>
+              <a href="/architecture">Architecture</a>
             </div>
           </div>
         </nav>
@@ -24,6 +26,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/graph" element={<KnowledgeGraph />} />
             <Route path="/health" element={<Health />} />
+            <Route path="/architecture" element={<ArchitectureStudio />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

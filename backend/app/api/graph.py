@@ -3,12 +3,10 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional, Dict, Any
 from urllib.parse import unquote
 from pathlib import Path
-from app.agents.graph_agent import GraphBuilder
+from app.agents.graph_agent import GraphBuilder, KnowledgeGraphBuilder
 from app.api.parse import parsed_graphs
-from app.core.db import save_graph, save_parsed_data, get_graph, get_all_graphs  # IMPORT DB FUNCTIONS
+from app.core.db import save_graph, save_parsed_data, get_graph, get_all_graphs
 from app.knowledge_graph.code_parser import parse_repository as simple_parse_repository
-from app.agents.graph_agent import KnowledgeGraphBuilder
-from app.agents.architectural_graph import ArchitecturalGraphBuilder
 from app.core.utils import clone_or_pull_repo
 from app.schemas.graph_schema import SubgraphContext
 from datetime import datetime
@@ -27,6 +25,25 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
     
     logger.info(f"Requested key (raw): '{repo_key}'")
     logger.info(f"Requested key (decoded): '{decoded_key}'")
+    
+    # Check if it's an organization graph (stored in MongoDB)
+    if decoded_key.startswith("org:") or repo_key.startswith("org:"):
+        org_key = decoded_key if decoded_key.startswith("org:") else repo_key
+        logger.info(f"Loading organization graph: {org_key}")
+        
+        from app.core.db import get_graph
+        graph_doc = get_graph(org_key)
+        
+        if not graph_doc:
+            raise HTTPException(status_code=404, detail=f"Organization graph '{org_key}' not found in MongoDB")
+        
+        graph_data = graph_doc.get("graph_data", {})
+        
+        # Convert organization graph format to visualization format
+        visualization = convert_org_graph_to_visualization(graph_data, org_key)
+        return visualization
+    
+    # Handle regular repository graphs
     logger.info(f"Available keys: {list(parsed_graphs.keys())}")
     
     actual_key = None
@@ -69,6 +86,141 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
     save_graph_to_db(actual_key, visualization)
     
     return visualization
+
+
+def convert_org_graph_to_visualization(org_graph: Dict[str, Any], org_key: str) -> Dict[str, Any]:
+    """
+    Convert organization dependency graph format to frontend visualization format.
+    
+    Organization format:
+    - nodes: [{id, type, language, services, endpoints}]
+    - edges: [{from, to, type, dependency_type, event_name?, endpoint?, violation?, circular?}]
+    
+    Visualization format (Cytoscape):
+    - nodes: [{"data": {id, label, type, category, ...}}]
+    - edges: [{"data": {id, source, target, relation, dependency_type, ...}}]
+    - metadata: {total_nodes, total_edges, repository_name}
+    """
+    nodes = []
+    edges = []
+    
+    # First pass: collect all node IDs and calculate degrees
+    node_ids = set()
+    node_degrees = {}
+    
+    for node in org_graph.get("nodes", []):
+        node_id = node.get("id", "")
+        if node_id:
+            node_ids.add(node_id)
+            node_degrees[node_id] = 0
+    
+    # Calculate degrees from edges
+    for edge in org_graph.get("edges", []):
+        from_node = edge.get("from", "")
+        to_node = edge.get("to", "")
+        if from_node in node_degrees:
+            node_degrees[from_node] += 1
+        if to_node in node_degrees:
+            node_degrees[to_node] += 1
+    
+    # Convert nodes - wrap in "data" property for Cytoscape
+    for node in org_graph.get("nodes", []):
+        node_id = node.get("id", "")
+        if not node_id:
+            continue
+            
+        node_type = node.get("type", "service")
+        
+        # Determine category based on type
+        category_map = {
+            "service": "api",
+            "library": "module"
+        }
+        category = category_map.get(node_type, "api")
+        
+        # Build label - use node ID as primary label
+        services = node.get("services", [])
+        if services:
+            label = f"{node_id}\n({', '.join(services[:2])})"
+        else:
+            label = node_id
+        
+        nodes.append({
+            "data": {
+                "id": node_id,
+                "label": label,
+                "type": node_type,
+                "category": category,
+                "language": node.get("language", "unknown"),
+                "services": services,
+                "endpoints": node.get("endpoints", 0),
+                "degree": node_degrees.get(node_id, 0)
+            }
+        })
+    
+    # Convert edges - wrap in "data" property for Cytoscape
+    for idx, edge in enumerate(org_graph.get("edges", [])):
+        from_node = edge.get("from", "")
+        to_node = edge.get("to", "")
+        edge_type = edge.get("type", "UNKNOWN")
+        
+        if not from_node or not to_node:
+            continue
+        
+        # Build relation label
+        relation_parts = [edge_type]
+        if edge.get("event_name"):
+            relation_parts.append(f"Event: {edge['event_name']}")
+        if edge.get("endpoint"):
+            relation_parts.append(edge["endpoint"])
+        if edge.get("violation"):
+            relation_parts.append("(VIOLATION)")
+        if edge.get("circular"):
+            relation_parts.append("(CIRCULAR)")
+        
+        relation = " | ".join(relation_parts)
+        
+        # Map edge type to dependency_type for styling
+        dependency_type_map = {
+            "REST": "rest",
+            "EVENT": "event",
+            "IMPORT": "import",
+            "DB_ACCESS": "db_access",
+            "CIRCULAR": "circular"
+        }
+        dependency_type = dependency_type_map.get(edge_type, edge.get("dependency_type", ""))
+        
+        edges.append({
+            "data": {
+                "id": f"{from_node}-{to_node}-{idx}",
+                "source": from_node,
+                "target": to_node,
+                "relation": relation,
+                "dependency_type": dependency_type,
+                "type": edge_type,
+                "strength": 1.0,
+                "violation": edge.get("violation", False),
+                "circular": edge.get("circular", False),
+                "event_name": edge.get("event_name", ""),
+                "endpoint": edge.get("endpoint", "")
+            }
+        })
+    
+    # Extract organization name
+    org_name = org_key.replace("org:", "") if org_key.startswith("org:") else org_key
+    
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "metadata": {
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+            "repository_name": f"Organization: {org_name}",
+            "graph_type": "organization",
+            "statistics": org_graph.get("statistics", {}),
+            "violations": org_graph.get("violations", [])
+        }
+    }
 
 
 def save_graph_to_db(graph_name: str, graph_data: dict):
@@ -341,51 +493,6 @@ async def get_subgraph_context(repo_key: str, element_id: str, max_depth: int = 
     """
     Extract subgraph context for a given element.
     Returns structured context showing what would be affected if the element is modified.
-    """
-    try:
-        decoded_key = unquote(repo_key)
-    except Exception:
-        decoded_key = repo_key
-    
-    # Find the graph
-    actual_key = None
-    for test_key in [decoded_key, repo_key]:
-        if test_key in parsed_graphs:
-            actual_key = test_key
-            break
-    
-    if actual_key is None:
-        for stored_key in parsed_graphs.keys():
-            if stored_key == decoded_key or stored_key == repo_key:
-                actual_key = stored_key
-                break
-            if stored_key.replace('://', '') == decoded_key.replace('://', ''):
-                actual_key = stored_key
-                break
-    
-    if actual_key is None:
-        raise HTTPException(status_code=404, detail=f"Graph not found for key: {decoded_key}")
-    
-    graph_data = parsed_graphs[actual_key]["graph"]
-    builder = GraphBuilder()
-    
-    # Extract subgraph context
-    context = builder.extract_subgraph_context(graph_data, element_id, max_depth=max_depth)
-    
-    return context.dict()
-    """
-    Extract subgraph context for a given element.
-    Returns structured context showing what would be affected if the element is modified.
-    
-    Example: GET /api/graph/{repo_key}/subgraph/UserService
-    Returns: {
-        "target_service": "UserService",
-        "direct_dependents": [...],
-        "transitive_dependents": [...],
-        "affected_apis": [...],
-        "database_tables": [...],
-        ...
-    }
     """
     try:
         decoded_key = unquote(repo_key)

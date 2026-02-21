@@ -5,3 +5,9 @@ const api = axios.create({
 });
 
 export default api;
+
+// Architecture Studio API functions
+export const generateArchitectureBlueprint = async (payload) => {
+  const response = await api.post("/architecture/generate", payload);
+  return response.data;
+};

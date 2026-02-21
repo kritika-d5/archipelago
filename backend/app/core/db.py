@@ -2,6 +2,7 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 import os
 import logging
+from datetime import datetime
 from app.config import MONGO_URI
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,9 @@ def save_graph(graph_name, graph_dict, timestamp=None):
     
     try:
         update_data = {
+            "graph_name": graph_name,  # Ensure graph_name is in the document
             "graph_data": graph_dict,
-            "timestamp": timestamp
+            "timestamp": timestamp or datetime.now()
         }
         result = db.graphs.update_one(
             {"graph_name": graph_name},
@@ -106,6 +108,21 @@ def get_all_graphs():
         return results
     except Exception as e:
         logger.error(f"Error getting all graphs from MongoDB: {str(e)}")
+        raise
+
+def get_parsed_data(graph_name):
+    """Get parsed data from MongoDB by name."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    
+    try:
+        result = db.parsed_data.find_one({"graph_name": graph_name})
+        # Convert MongoDB ObjectId to string for JSON serialization
+        if result:
+            result["_id"] = str(result["_id"])
+        return result
+    except Exception as e:
+        logger.error(f"Error getting parsed data from MongoDB: {str(e)}")
         raise
 
 def test_connection():
