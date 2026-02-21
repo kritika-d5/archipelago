@@ -1,10 +1,29 @@
+import logging
 from fastapi import FastAPI
-from app.api import architecture, graph, health
+from fastapi.middleware.cors import CORSMiddleware
+from app.api import parse, graph, query, health
+from app.config import LOG_LEVEL
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL.upper()),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 app = FastAPI(title="Living Knowledge Graph System")
 
-app.include_router(architecture.router)
+# CORS middleware for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(parse.router)
 app.include_router(graph.router)
+app.include_router(query.router)
 app.include_router(health.router)
 
 @app.get("/")

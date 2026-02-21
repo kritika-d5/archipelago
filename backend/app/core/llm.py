@@ -1,0 +1,304 @@
+import os
+from typing import List, Dict, Any, Optional
+import logging
+from groq import Groq
+from pydantic import ValidationError
+
+from app.schemas.graph_schema import (
+    CodebaseGraph, CodeElement, QueryRequest, QueryResponse,
+    WhatIfRequest, WhatIfResponse
+)
+
+logger = logging.getLogger(__name__)
+
+
+class LLMService:
+    """Service for LLM interactions using Groq API."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        """
+        Initialize LLM service.
+        
+        Args:
+            api_key: Groq API key (defaults to GROQ_API_KEY env var)
+        """
+        from app.config import GROQ_API_KEY
+        api_key = api_key or GROQ_API_KEY or os.getenv("GROQ_API_KEY")
+        if not api_key:
+            logger.warning("GROQ_API_KEY not found. LLM features will not work.")
+            raise ValueError("GROQ_API_KEY environment variable is required. Create .env file with GROQ_API_KEY=your_key")
+        
+        self.client = Groq(api_key=api_key)
+        self.model = "openai/gpt-oss-20b"  # or "mixtral-8x7b-32768"
+    
+    def _build_context(self, codebase_graph: CodebaseGraph, 
+                      element_ids: Optional[List[str]] = None,
+                      include_code: bool = True,
+                      max_elements: int = 10) -> str:
+        """
+        Build context string from codebase graph.
+        
+        Args:
+            codebase_graph: Codebase graph
+            element_ids: Specific element IDs to include
+            include_code: Whether to include code snippets
+            max_elements: Maximum number of elements to include
+            
+        Returns:
+            Context string
+        """
+        context_parts = []
+        
+        # Add metadata
+        metadata = codebase_graph.metadata
+        context_parts.append(f"Repository: {metadata.repository_name}")
+        context_parts.append(f"Languages: {', '.join([l.value for l in metadata.languages])}")
+        context_parts.append(f"Total files: {metadata.total_files}")
+        context_parts.append(f"Total lines: {metadata.total_lines}")
+        context_parts.append("")
+        
+        # Add relevant elements
+        if element_ids:
+            elements_to_include = [codebase_graph.get_element_by_id(eid) 
+                                  for eid in element_ids if codebase_graph.get_element_by_id(eid)]
+        else:
+            # Include top-level modules and important classes
+            elements_to_include = []
+            for module in codebase_graph.modules[:max_elements]:
+                elements_to_include.append(module)
+            for elem in codebase_graph.elements[:max_elements]:
+                if elem.type.value in ['class', 'function']:
+                    elements_to_include.append(elem)
+        
+        context_parts.append("=== Codebase Structure ===")
+        for item in elements_to_include[:max_elements]:
+            if isinstance(item, CodeElement):
+                context_parts.append(f"\n{item.type.value.upper()}: {item.name}")
+                context_parts.append(f"File: {item.file_path}")
+                context_parts.append(f"Lines: {item.line_start}-{item.line_end}")
+                if item.docstring:
+                    context_parts.append(f"Description: {item.docstring}")
+                if include_code and item.code_snippet:
+                    context_parts.append(f"Code:\n{item.code_snippet}")
+                if item.parameters:
+                    params_str = ", ".join([f"{p.name}: {p.type or 'Any'}" for p in item.parameters])
+                    context_parts.append(f"Parameters: {params_str}")
+                if item.return_type:
+                    context_parts.append(f"Returns: {item.return_type.type or 'None'}")
+            else:  # Module
+                context_parts.append(f"\nMODULE: {item.name}")
+                context_parts.append(f"File: {item.file_path}")
+                if item.docstring:
+                    context_parts.append(f"Description: {item.docstring}")
+                if item.imports:
+                    context_parts.append(f"Imports: {', '.join(item.imports[:10])}")
+        
+        # Add dependency information
+        context_parts.append("\n=== Key Dependencies ===")
+        dep_count = 0
+        for dep in codebase_graph.dependencies[:20]:
+            source = codebase_graph.get_element_by_id(dep.source_id)
+            target = codebase_graph.get_element_by_id(dep.target_id)
+            if source and target:
+                context_parts.append(
+                    f"{source.name} -> {target.name} ({dep.dependency_type.value})"
+                )
+                dep_count += 1
+                if dep_count >= 20:
+                    break
+        
+        return "\n".join(context_parts)
+    
+    def answer_query(self, codebase_graph: CodebaseGraph, 
+                    request: QueryRequest) -> QueryResponse:
+        """
+        Answer a query about the codebase using LLM.
+        
+        Args:
+            codebase_graph: Codebase graph
+            request: Query request
+            
+        Returns:
+            Query response with answer
+        """
+        try:
+            # Build context
+            context = self._build_context(
+                codebase_graph,
+                element_ids=request.context_element_ids,
+                include_code=request.include_code,
+                max_elements=request.max_context_elements
+            )
+            
+            # Build prompt
+            prompt = f"""You are an expert code analyst. Analyze the following codebase and answer the user's question.
+
+{context}
+
+User Question: {request.query}
+
+Provide a detailed, accurate answer based on the codebase structure. Include:
+1. Direct answer to the question
+2. Relevant code elements mentioned
+3. How different parts relate to each other
+4. Any important patterns or architectural decisions
+
+Answer:"""
+            
+            # Call Groq API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert code analyst specializing in understanding codebase architecture and relationships."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            
+            answer = response.choices[0].message.content
+            
+            # Extract relevant elements (simple keyword matching)
+            relevant_elements = []
+            if request.context_element_ids:
+                relevant_elements = request.context_element_ids
+            else:
+                # Find elements mentioned in answer
+                for elem in codebase_graph.elements:
+                    if elem.name.lower() in answer.lower() or elem.file_path in answer:
+                        relevant_elements.append(elem.id)
+                        if len(relevant_elements) >= 10:
+                            break
+            
+            return QueryResponse(
+                answer=answer,
+                relevant_elements=relevant_elements[:10],
+                confidence=0.8,
+                sources=[{"type": "codebase", "element_id": eid} for eid in relevant_elements[:5]]
+            )
+            
+        except Exception as e:
+            logger.error(f"Error answering query: {e}")
+            return QueryResponse(
+                answer=f"Error processing query: {str(e)}",
+                relevant_elements=[],
+                confidence=0.0,
+                sources=[]
+            )
+    
+    def analyze_what_if(self, codebase_graph: CodebaseGraph,
+                       request: WhatIfRequest) -> WhatIfResponse:
+        """
+        Perform what-if analysis using LLM.
+        
+        Args:
+            codebase_graph: Codebase graph
+            request: What-if request
+            
+        Returns:
+            What-if response with analysis
+        """
+        try:
+            # Find affected elements
+            affected_elements = request.affected_elements or []
+            
+            # Build impact chain if requested
+            impact_chain = []
+            if request.include_impact_chain and affected_elements:
+                from app.knowledge_graph.graph_builder import GraphBuilder
+                builder = GraphBuilder()
+                for elem_id in affected_elements[:5]:  # Limit to first 5
+                    chain = builder.find_impact_chain(codebase_graph, elem_id, request.max_depth)
+                    impact_chain.extend(chain)
+            
+            # Build context with affected elements
+            context = self._build_context(
+                codebase_graph,
+                element_ids=affected_elements,
+                include_code=True,
+                max_elements=20
+            )
+            
+            # Add impact chain to context
+            if impact_chain:
+                context += "\n\n=== Impact Chain ==="
+                for entry in impact_chain[:30]:
+                    source = codebase_graph.get_element_by_id(entry['source'])
+                    target = codebase_graph.get_element_by_id(entry['target'])
+                    if source and target:
+                        context += f"\n{source.name} -> {target.name} (depth: {entry['depth']})"
+            
+            # Build prompt
+            prompt = f"""You are an expert code impact analyst. Analyze the following scenario and predict its impact on the codebase.
+
+Codebase Context:
+{context}
+
+Scenario: {request.scenario}
+
+Provide a comprehensive impact analysis including:
+1. Direct impact on affected elements
+2. Cascading effects through dependencies
+3. Risk assessment (low/medium/high/critical)
+4. Specific recommendations for safe implementation
+5. Potential breaking changes
+6. Testing requirements
+
+Analysis:"""
+            
+            # Call Groq API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert code impact analyst specializing in predicting code changes and their effects."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+                max_tokens=2500
+            )
+            
+            analysis = response.choices[0].message.content
+            
+            # Extract risk level from analysis
+            risk_level = "medium"
+            analysis_lower = analysis.lower()
+            if "critical" in analysis_lower or "severe" in analysis_lower:
+                risk_level = "critical"
+            elif "high" in analysis_lower:
+                risk_level = "high"
+            elif "low" in analysis_lower or "minimal" in analysis_lower:
+                risk_level = "low"
+            
+            # Extract recommendations (simple pattern matching)
+            recommendations = []
+            lines = analysis.split('\n')
+            for line in lines:
+                if any(keyword in line.lower() for keyword in ['recommend', 'suggest', 'should', 'must']):
+                    if line.strip() and not line.strip().startswith('#'):
+                        recommendations.append(line.strip())
+            
+            if not recommendations:
+                recommendations = [
+                    "Review all dependent components",
+                    "Update tests for affected areas",
+                    "Consider backward compatibility"
+                ]
+            
+            return WhatIfResponse(
+                analysis=analysis,
+                affected_elements=affected_elements,
+                impact_chain=[{"source": e['source'], "target": e['target'], "depth": e['depth']} 
+                            for e in impact_chain[:20]],
+                risk_level=risk_level,
+                recommendations=recommendations[:10]
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in what-if analysis: {e}")
+            return WhatIfResponse(
+                analysis=f"Error performing analysis: {str(e)}",
+                affected_elements=[],
+                impact_chain=[],
+                risk_level="unknown",
+                recommendations=[]
+            )
