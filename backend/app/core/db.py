@@ -40,20 +40,42 @@ except Exception as e:
     logger.warning(f"MongoDB initialization failed: {str(e)}. Database operations will fail until connection is established.")
 
 def save_graph(graph_name, graph_dict, timestamp=None):
-    """Save graph to MongoDB."""
+    """Saves only the UI-ready graph data."""
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
     
     try:
-        result = db.graphs.insert_one({
-            "graph_name": graph_name,
+        update_data = {
             "graph_data": graph_dict,
             "timestamp": timestamp
-        })
-        logger.info(f"Graph '{graph_name}' saved to MongoDB with ID: {result.inserted_id}")
-        return result.inserted_id
+        }
+        result = db.graphs.update_one(
+            {"graph_name": graph_name},
+            {"$set": update_data},
+            upsert=True
+        )
+        logger.info(f"Graph '{graph_name}' saved to MongoDB (upserted: {result.upserted_id is not None})")
+        return result.upserted_id or result.modified_count
     except Exception as e:
         logger.error(f"Error saving graph to MongoDB: {str(e)}")
+        raise
+
+
+def save_parsed_data(graph_name, parsed_json):
+    """Saves the raw structural data in a separate collection."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    
+    try:
+        result = db.parsed_data.update_one(
+            {"graph_name": graph_name},
+            {"$set": {"parsed_data": parsed_json, "graph_name": graph_name}},
+            upsert=True
+        )
+        logger.info(f"Parsed data '{graph_name}' saved to MongoDB (upserted: {result.upserted_id is not None})")
+        return result.upserted_id or result.modified_count
+    except Exception as e:
+        logger.error(f"Error saving parsed data to MongoDB: {str(e)}")
         raise
 
 def get_graph(graph_name):
