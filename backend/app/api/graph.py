@@ -79,7 +79,10 @@ def save_graph_to_db(graph_name: str, graph_data: dict):
         )
         logger.info(f"Graph '{graph_name}' saved to MongoDB")
     except Exception as e:
-        logger.error(f"Failed to save graph to MongoDB: {str(e)}")
+        error_msg = f"Failed to save graph to MongoDB: {str(e)}"
+        logger.error(error_msg)
+        # Re-raise so the API can return proper error
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 # NEW ENDPOINT: Get all saved graphs from MongoDB
@@ -267,3 +270,10 @@ async def generate_graph(repo_url: str) -> Dict[str, Any]:
             status_code=500,
             detail=f"Error generating graph: {str(e)}"
         )
+
+
+@router.get("/db/test")
+async def test_db_connection():
+    """Test MongoDB connection and return status."""
+    from app.core.db import test_connection
+    return test_connection()
