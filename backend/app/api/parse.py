@@ -5,6 +5,8 @@ from typing import Dict, Any
 from app.schemas.graph_schema import ParsingRequest, ParsingResponse
 from app.knowledge_graph.repo_manager import RepositoryManager
 from app.knowledge_graph.code_parser import CodeParser
+from app.core.db import save_graph, save_parsed_data
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/parse", tags=["parsing"])
@@ -47,6 +49,22 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
         
         logger.info(f"Graph stored with key: {graph_key}")
         logger.info(f"Available keys: {list(parsed_graphs.keys())}")
+        
+        # Save UI-ready graph data to 'graphs' collection
+        try:
+            graph_json = graph.model_dump(mode='json')
+            save_graph(graph_key, graph_json, timestamp=datetime.now())
+            logger.info(f"Graph data saved to MongoDB 'graphs' collection")
+        except Exception as e:
+            logger.error(f"Failed to save graph to MongoDB: {str(e)}")
+        
+        # Save raw parsed data to 'parsed_data' collection
+        try:
+            raw_data = graph.model_dump(mode='json')
+            save_parsed_data(graph_key, raw_data)
+            logger.info(f"Parsed data saved to MongoDB 'parsed_data' collection")
+        except Exception as e:
+            logger.error(f"Failed to save parsed data to MongoDB: {str(e)}")
         
         parsing_time = time.time() - start_time
         logger.info(f"Parsing complete in {parsing_time:.2f}s")

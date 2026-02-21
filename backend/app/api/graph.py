@@ -5,7 +5,7 @@ from urllib.parse import unquote
 from pathlib import Path
 from app.agents.graph_agent import GraphBuilder
 from app.api.parse import parsed_graphs
-from app.core.db import save_graph, get_graph, get_all_graphs  # IMPORT DB FUNCTIONS
+from app.core.db import save_graph, save_parsed_data, get_graph, get_all_graphs  # IMPORT DB FUNCTIONS
 from app.knowledge_graph.code_parser import parse_repository as simple_parse_repository
 from app.agents.graph_agent import KnowledgeGraphBuilder
 from app.core.utils import clone_or_pull_repo
@@ -79,7 +79,10 @@ def save_graph_to_db(graph_name: str, graph_data: dict):
         )
         logger.info(f"Graph '{graph_name}' saved to MongoDB")
     except Exception as e:
-        logger.error(f"Failed to save graph to MongoDB: {str(e)}")
+        error_msg = f"Failed to save graph to MongoDB: {str(e)}"
+        logger.error(error_msg)
+        # Re-raise so the API can return proper error
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 # NEW ENDPOINT: Get all saved graphs from MongoDB
@@ -254,8 +257,17 @@ async def generate_graph(repo_url: str) -> Dict[str, Any]:
         
         # Save to MongoDB
         graph_name = f"{repo_url}:main"
+        
+        # Save UI-ready graph data to 'graphs' collection
         save_graph_to_db(graph_name, graph_data)
-        logger.info(f"Graph saved to MongoDB with name: {graph_name}")
+        logger.info(f"Graph saved to MongoDB 'graphs' collection with name: {graph_name}")
+        
+        # Save raw parsed data to 'parsed_data' collection
+        try:
+            save_parsed_data(graph_name, parsed_data)
+            logger.info(f"Parsed data saved to MongoDB 'parsed_data' collection")
+        except Exception as e:
+            logger.error(f"Failed to save parsed data to MongoDB: {str(e)}")
         
         return graph_data
     
@@ -267,3 +279,10 @@ async def generate_graph(repo_url: str) -> Dict[str, Any]:
             status_code=500,
             detail=f"Error generating graph: {str(e)}"
         )
+
+
+@router.get("/db/test")
+async def test_db_connection():
+    """Test MongoDB connection and return status."""
+    from app.core.db import test_connection
+    return test_connection()
