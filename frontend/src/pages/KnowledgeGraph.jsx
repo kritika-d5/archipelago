@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import cytoscape from 'cytoscape';
 import coseBilkent from 'cytoscape-cose-bilkent';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 
 cytoscape.use(coseBilkent);
@@ -392,13 +394,65 @@ function KnowledgeGraph() {
             {answer && (
               <div className="answer-box">
                 <h3>Answer</h3>
-                <p>{answer.answer}</p>
+                <div className="answer-content">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code: ({node, inline, className, children, ...props}) => {
+                        const match = /language-(\w+)/.exec(className || '');
+                        return !inline && match ? (
+                          <pre style={{
+                            background: '#f4f4f4',
+                            padding: '1rem',
+                            borderRadius: '4px',
+                            overflow: 'auto',
+                            border: '1px solid #ddd'
+                          }}>
+                            <code className={className} {...props}>
+                              {children}
+                            </code>
+                          </pre>
+                        ) : (
+                          <code className={className} style={{
+                            background: '#f4f4f4',
+                            padding: '0.2em 0.4em',
+                            borderRadius: '3px',
+                            fontSize: '0.9em'
+                          }} {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                      p: ({node, ...props}) => <p style={{ marginBottom: '1rem', lineHeight: '1.6' }} {...props} />,
+                      h1: ({node, ...props}) => <h1 style={{ fontSize: '1.5rem', marginTop: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                      h2: ({node, ...props}) => <h2 style={{ fontSize: '1.3rem', marginTop: '1.3rem', marginBottom: '0.8rem' }} {...props} />,
+                      h3: ({node, ...props}) => <h3 style={{ fontSize: '1.1rem', marginTop: '1.1rem', marginBottom: '0.6rem' }} {...props} />,
+                      ul: ({node, ...props}) => <ul style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                      ol: ({node, ...props}) => <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                      li: ({node, ...props}) => <li style={{ marginBottom: '0.5rem' }} {...props} />,
+                      blockquote: ({node, ...props}) => (
+                        <blockquote style={{
+                          borderLeft: '4px solid #ddd',
+                          paddingLeft: '1rem',
+                          marginLeft: '0',
+                          marginBottom: '1rem',
+                          color: '#666',
+                          fontStyle: 'italic'
+                        }} {...props} />
+                      ),
+                      strong: ({node, ...props}) => <strong style={{ fontWeight: 'bold' }} {...props} />,
+                      em: ({node, ...props}) => <em style={{ fontStyle: 'italic' }} {...props} />,
+                    }}
+                  >
+                    {answer.answer}
+                  </ReactMarkdown>
+                </div>
                 {answer.relevant_elements && answer.relevant_elements.length > 0 && (
-                  <div style={{ marginTop: '1rem' }}>
+                  <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #ddd' }}>
                     <strong>Relevant Elements:</strong>
-                    <ul>
+                    <ul style={{ marginTop: '0.5rem' }}>
                       {answer.relevant_elements.slice(0, 5).map((elem, idx) => (
-                        <li key={idx}>{elem}</li>
+                        <li key={idx} style={{ marginBottom: '0.3rem' }}>{elem}</li>
                       ))}
                     </ul>
                   </div>
@@ -429,7 +483,60 @@ function KnowledgeGraph() {
                     {whatIfResult.risk_level.toUpperCase()}
                   </span>
                 </h3>
-                <p>{whatIfResult.analysis}</p>
+                <div className="answer-content">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code: ({node, inline, className, children, ...props}) => {
+                        const match = /language-(\w+)/.exec(className || '');
+                        return !inline && match ? (
+                          <pre style={{
+                            background: '#f4f4f4',
+                            padding: '1rem',
+                            borderRadius: '4px',
+                            overflow: 'auto',
+                            border: '1px solid #ddd'
+                          }}>
+                            <code className={className} {...props}>
+                              {children}
+                            </code>
+                          </pre>
+                        ) : (
+                          <code className={className} style={{
+                            background: '#f4f4f4',
+                            padding: '0.2em 0.4em',
+                            borderRadius: '3px',
+                            fontSize: '0.9em'
+                          }} {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                      p: ({node, ...props}) => <p style={{ marginBottom: '1rem', lineHeight: '1.6' }} {...props} />,
+                      h1: ({node, ...props}) => <h1 style={{ fontSize: '1.5rem', marginTop: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                      h2: ({node, ...props}) => <h2 style={{ fontSize: '1.3rem', marginTop: '1.3rem', marginBottom: '0.8rem' }} {...props} />,
+                      h3: ({node, ...props}) => <h3 style={{ fontSize: '1.1rem', marginTop: '1.1rem', marginBottom: '0.6rem' }} {...props} />,
+                      h4: ({node, ...props}) => <h4 style={{ fontSize: '1rem', marginTop: '1rem', marginBottom: '0.6rem' }} {...props} />,
+                      ul: ({node, ...props}) => <ul style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                      ol: ({node, ...props}) => <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                      li: ({node, ...props}) => <li style={{ marginBottom: '0.5rem' }} {...props} />,
+                      blockquote: ({node, ...props}) => (
+                        <blockquote style={{
+                          borderLeft: '4px solid #ddd',
+                          paddingLeft: '1rem',
+                          marginLeft: '0',
+                          marginBottom: '1rem',
+                          color: '#666',
+                          fontStyle: 'italic'
+                        }} {...props} />
+                      ),
+                      strong: ({node, ...props}) => <strong style={{ fontWeight: 'bold' }} {...props} />,
+                      em: ({node, ...props}) => <em style={{ fontStyle: 'italic' }} {...props} />,
+                    }}
+                  >
+                    {whatIfResult.analysis}
+                  </ReactMarkdown>
+                </div>
                 {whatIfResult.recommendations && whatIfResult.recommendations.length > 0 && (
                   <div className="recommendations">
                     <h4>Recommendations:</h4>

@@ -230,9 +230,126 @@ body {
   color: #333;
 }
 
-.answer-box p {
-  line-height: 1.6;
+.answer-content {
+  color: #333;
+  line-height: 1.7;
+}
+
+.answer-content p {
+  margin-bottom: 1rem;
+  line-height: 1.7;
   color: #555;
+}
+
+.answer-content h1,
+.answer-content h2,
+.answer-content h3,
+.answer-content h4,
+.answer-content h5,
+.answer-content h6 {
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.answer-content h1 {
+  font-size: 1.75rem;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 0.5rem;
+}
+
+.answer-content h2 {
+  font-size: 1.5rem;
+}
+
+.answer-content h3 {
+  font-size: 1.25rem;
+}
+
+.answer-content ul,
+.answer-content ol {
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+  padding-left: 1rem;
+}
+
+.answer-content li {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+.answer-content code {
+  background: #f4f4f4;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: 'Courier New', monospace;
+  color: #e83e8c;
+}
+
+.answer-content pre {
+  background: #f4f4f4;
+  padding: 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  border: 1px solid #ddd;
+  margin-bottom: 1rem;
+}
+
+.answer-content pre code {
+  background: transparent;
+  padding: 0;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.answer-content blockquote {
+  border-left: 4px solid #667eea;
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-bottom: 1rem;
+  color: #666;
+  font-style: italic;
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 4px;
+}
+
+.answer-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.answer-content table th,
+.answer-content table td {
+  border: 1px solid #ddd;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.answer-content table th {
+  background: #f8f9fa;
+  font-weight: 600;
+}
+
+.answer-content a {
+  color: #667eea;
+  text-decoration: none;
+}
+
+.answer-content a:hover {
+  text-decoration: underline;
+}
+
+.answer-content strong {
+  font-weight: 600;
+  color: #333;
+}
+
+.answer-content em {
+  font-style: italic;
 }
 
 .recommendations {
