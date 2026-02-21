@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import KnowledgeGraph from './pages/KnowledgeGraph';
 import Health from './pages/Health';
 import ArchitectureStudio from './pages/ArchitectureStudio';
+import Onboarding from './pages/Onboarding';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
             <h1 className="nav-title">🧠 Knowledge Graph System</h1>
             <div className="nav-links">
               <a href="/">Dashboard</a>
+              <a href="/onboarding">Get Started</a>
               <a href="/graph">Graph</a>
               <a href="/health">Health</a>
               <a href="/architecture">Architecture</a>
@@ -24,6 +26,7 @@ function App() {
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/graph" element={<KnowledgeGraph />} />
             <Route path="/health" element={<Health />} />
             <Route path="/architecture" element={<ArchitectureStudio />} />

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
 function Dashboard() {
@@ -10,6 +11,26 @@ function Dashboard() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [parsedGraphs, setParsedGraphs] = useState([]);
+  const [connectHint, setConnectHint] = useState(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connect = params.get('connect');
+    if (connect) {
+      // Provide helpful prefill/hint depending on source
+      if (connect === 'github') {
+        setRepoUrl('https://github.com/');
+        setConnectHint('Paste your GitHub repository or organization URL above and click Parse to ingest sources.');
+      } else if (connect === 'docs') {
+        setConnectHint('To connect documentation, provide a documentation source or follow the docs connector instructions.');
+      } else if (connect === 'slack') {
+        setConnectHint('To connect Slack, follow the Slack connector instructions in settings.');
+      } else if (connect === 'cicd') {
+        setConnectHint('To connect CI/CD, provide the CI/CD integration details in settings.');
+      }
+    }
+  }, []);
 
   React.useEffect(() => {
     loadParsedGraphs();
@@ -39,8 +60,10 @@ function Dashboard() {
       });
 
       if (response.data.success) {
-        setResult(response.data);
-        loadParsedGraphs();
+          setResult(response.data);
+          loadParsedGraphs();
+          // redirect user to graph/qna page after parse
+          try { navigate('/graph'); } catch (e) { /* noop */ }
       } else {
         setError(response.data.error || 'Parsing failed');
       }
@@ -55,6 +78,7 @@ function Dashboard() {
     <div>
       <div className="card">
         <h2 className="card-title">Parse Repository</h2>
+        {connectHint && <div className="info-card" style={{ marginBottom: '1rem' }}>{connectHint}</div>}
         <form onSubmit={handleParse}>
           <div className="form-group">
             <label>Repository URL or Organization</label>

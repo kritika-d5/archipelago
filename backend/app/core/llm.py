@@ -369,3 +369,250 @@ Analysis:"""
                 risk_level="unknown",
                 recommendations=[]
             )
+
+    def _build_org_context(self, org_data: Dict[str, Any], max_repos: int = 5) -> str:
+        """
+        Build context string from organization data (multiple repos + dependencies).
+        
+        Args:
+            org_data: Organization data containing:
+                - repos_data: Dict of repo_name -> parsed repo data
+                - dependency_graph: Organization-level dependency graph
+            max_repos: Maximum number of repos to include in detail
+            
+        Returns:
+            Context string for LLM
+        """
+        context_parts = []
+        
+        repos_data = org_data.get("repos_data", {})
+        dependency_graph = org_data.get("dependency_graph", {})
+        
+        # Organization header
+        context_parts.append("=== ORGANIZATION OVERVIEW ===")
+        context_parts.append(f"Total Repositories: {len(repos_data)}")
+        context_parts.append(f"Repository Names: {', '.join(list(repos_data.keys())[:10])}")
+        context_parts.append("")
+        
+        # Add key repositories
+        context_parts.append("=== KEY REPOSITORIES ===")
+        for i, (repo_name, repo_info) in enumerate(list(repos_data.items())[:max_repos]):
+            context_parts.append(f"\nRepository: {repo_name}")
+            
+            # Services in this repo
+            services = repo_info.get("services", [])
+            if services:
+                context_parts.append(f"Services: {', '.join([s.get('name', 'Unknown') for s in services[:5]])}")
+            
+            # API endpoints
+            endpoints = repo_info.get("api_endpoints", [])
+            if endpoints:
+                context_parts.append(f"Endpoints: {', '.join([e.get('path', '') for e in endpoints[:5]])}")
+            
+            # Database access
+            db_access = repo_info.get("database_access", [])
+            if db_access:
+                context_parts.append(f"Database Tables: {', '.join(set([d.get('table') for d in db_access if d.get('table')][:5]))}")
+        
+        # Cross-repository dependencies
+        context_parts.append("\n=== CROSS-REPOSITORY DEPENDENCIES ===")
+        edges = dependency_graph.get("edges", [])
+        
+        # Group by type
+        import_deps = [e for e in edges if e.get("dependency_type") == "import"]
+        rest_deps = [e for e in edges if e.get("type") == "REST"]
+        event_deps = [e for e in edges if e.get("type") == "EVENT"]
+        circular_deps = [e for e in edges if e.get("circular")]
+        
+        if import_deps:
+            context_parts.append(f"\nImport Dependencies: {len(import_deps)}")
+            for dep in import_deps[:3]:
+                context_parts.append(f"  {dep.get('from')} -> {dep.get('to')}")
+        
+        if rest_deps:
+            context_parts.append(f"\nREST API Dependencies: {len(rest_deps)}")
+            for dep in rest_deps[:3]:
+                endpoint = dep.get('endpoint', 'unknown')
+                context_parts.append(f"  {dep.get('from')} -[{endpoint}]-> {dep.get('to')}")
+        
+        if event_deps:
+            context_parts.append(f"\nEvent-driven Dependencies: {len(event_deps)}")
+            for dep in event_deps[:3]:
+                context_parts.append(f"  {dep.get('from')} -[event: {dep.get('event_name', 'unknown')}]-> {dep.get('to')}")
+        
+        if circular_deps:
+            context_parts.append(f"\nCircular Dependencies (⚠️ Violations): {len(circular_deps)}")
+            for dep in circular_deps[:3]:
+                context_parts.append(f"  ⚠️ CIRCULAR: {dep.get('from')} <-> {dep.get('to')}")
+        
+        # Statistics
+        context_parts.append("\n=== STATISTICS ===")
+        stats = dependency_graph.get("statistics", {})
+        context_parts.append(f"Total Dependencies: {stats.get('total_dependencies', 0)}")
+        context_parts.append(f"Total Services: {stats.get('total_services', 0)}")
+        context_parts.append(f"Total Endpoints: {stats.get('total_endpoints', 0)}")
+        
+        violations = dependency_graph.get("violations", [])
+        if violations:
+            context_parts.append(f"⚠️ Architecture Violations: {len(violations)}")
+        
+        return "\n".join(context_parts)
+    
+    def answer_org_query(self, org_data: Dict[str, Any], request: QueryRequest) -> QueryResponse:
+        """
+        Answer a query about an organization's codebase using LLM.
+        
+        Args:
+            org_data: Organization data with all repos and dependency graph
+            request: Query request
+            
+        Returns:
+            Query response with answer
+        """
+        try:
+            # Build context from organization data
+            context = self._build_org_context(org_data, max_repos=10)
+            
+            # Build prompt
+            prompt = f"""You are an expert in microservices architecture and cross-repository analysis. 
+Analyze the following multi-repository organization and answer the user's question.
+
+{context}
+
+User Question: {request.query}
+
+Provide a detailed answer that considers:
+1. The overall architecture of the organization
+2. How services interact across repositories
+3. Potential bottlenecks or dependencies
+4. Any architectural issues or violations
+5. Best practices and recommendations
+
+Answer:"""
+            
+            # Call Groq API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert in analyzing microservices architectures and multi-repository organizations. Provide comprehensive, technical answers about system design and dependencies."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            
+            answer = response.choices[0].message.content
+            
+            # Extract relevant repositories mentioned in answer
+            repos_data = org_data.get("repos_data", {})
+            relevant_repos = []
+            for repo_name in repos_data.keys():
+                if repo_name.lower() in answer.lower():
+                    relevant_repos.append(repo_name)
+            
+            return QueryResponse(
+                answer=answer,
+                relevant_elements=relevant_repos[:10],
+                confidence=0.85,
+                sources=[{"type": "organization", "element_id": repo} for repo in relevant_repos[:5]]
+            )
+            
+        except Exception as e:
+            logger.error(f"Error answering organization query: {e}", exc_info=True)
+            return QueryResponse(
+                answer=f"Error processing query: {str(e)}",
+                relevant_elements=[],
+                confidence=0.0,
+                sources=[]
+            )
+    
+    def analyze_org_what_if(self, org_data: Dict[str, Any], request: WhatIfRequest) -> WhatIfResponse:
+        """
+        Perform what-if analysis on organization architecture.
+        
+        Args:
+            org_data: Organization data with all repos and dependency graph
+            request: What-if request
+            
+        Returns:
+            What-if response with impact analysis
+        """
+        try:
+            # Build context
+            context = self._build_org_context(org_data, max_repos=10)
+            
+            # Build prompt for what-if analysis
+            prompt = f"""You are an expert in system architecture and impact analysis.
+Analyze the following organization and perform a what-if analysis for the proposed scenario.
+
+{context}
+
+Scenario: {request.scenario}
+
+Provide a comprehensive impact analysis including:
+1. Which repositories/services would be affected
+2. What changes would be required in each service
+3. Potential breaking changes or compatibility issues
+4. Performance implications
+5. Testing considerations
+6. Deployment strategy
+7. Risk assessment (Low/Medium/High)
+8. Specific recommendations
+
+Impact Analysis:"""
+            
+            # Call Groq API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert in analyzing the impact of architectural changes on microservices systems. Provide thorough, risk-aware analysis."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.4,
+                max_tokens=2500
+            )
+            
+            analysis = response.choices[0].message.content
+            
+            # Extract affected repositories
+            repos_data = org_data.get("repos_data", {})
+            affected_repos = []
+            for repo_name in repos_data.keys():
+                if repo_name.lower() in analysis.lower():
+                    affected_repos.append(repo_name)
+            
+            # Determine risk level from analysis
+            analysis_lower = analysis.lower()
+            if "high risk" in analysis_lower or "critical" in analysis_lower:
+                risk_level = "high"
+            elif "medium risk" in analysis_lower or "significant" in analysis_lower:
+                risk_level = "medium"
+            else:
+                risk_level = "low"
+            
+            # Extract recommendations
+            recommendations = [
+                "Review affected repositories' dependencies",
+                "Update integration tests across services",
+                "Plan phased rollout of changes",
+                "Monitor cross-service communication",
+                "Document architectural changes"
+            ]
+            
+            return WhatIfResponse(
+                analysis=analysis,
+                affected_elements=affected_repos[:15],
+                impact_chain=[],  # Organization-level doesn't have element chains
+                risk_level=risk_level,
+                recommendations=recommendations
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in organization what-if analysis: {e}", exc_info=True)
+            return WhatIfResponse(
+                analysis=f"Error performing analysis: {str(e)}",
+                affected_elements=[],
+                impact_chain=[],
+                risk_level="unknown",
+                recommendations=[]
+            )
