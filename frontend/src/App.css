@@ -1264,3 +1264,173 @@ body {
   padding: 1rem 2rem;
   font-size: 1rem;
 }
+
+/* Layout styles */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.graph-section {
+  min-height: 600px;
+}
+
+.chatbot-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 600px;
+}
+
+.chatbot-section .card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 450px;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.chat-welcome {
+  text-align: center;
+  color: #666;
+  padding: 2rem;
+}
+
+.chat-welcome ul {
+  text-align: left;
+  margin-top: 1rem;
+  list-style: none;
+  padding-left: 0;
+}
+
+.chat-welcome li {
+  padding: 0.5rem 0;
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+.chat-welcome li:before {
+  content: "💬";
+  position: absolute;
+  left: 0;
+}
+
+.chat-message {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.chat-message.user {
+  background: #667eea;
+  color: white;
+  margin-left: 2rem;
+}
+
+.chat-message.assistant {
+  background: white;
+  border: 1px solid #e0e0e0;
+  margin-right: 2rem;
+}
+
+.chat-message.error {
+  background: #fee;
+  border: 1px solid #fcc;
+  margin-right: 2rem;
+}
+
+.message-content {
+  line-height: 1.6;
+}
+
+.what-if-header {
+  margin-bottom: 1rem;
+}
+
+.chat-input {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 0.75rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.chat-input input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.chat-input input:disabled {
+  background: #f8f9fa;
+  color: #666;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive design */
+@media (max-width: 1200px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .graph-section {
+    order: 1;
+  }
+  
+  .chatbot-section {
+    order: 2;
+  }
+  
+  .chat-message.user {
+    margin-left: 1rem;
+  }
+  
+  .chat-message.assistant,
+  .chat-message.error {
+    margin-right: 1rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-layout {
+    gap: 0.5rem;
+  }
+  
+  .chat-messages {
+    max-height: 300px;
+  }
+  
+  .chat-message.user,
+  .chat-message.assistant,
+  .chat-message.error {
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+  }
+}

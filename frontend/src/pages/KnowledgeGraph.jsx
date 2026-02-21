@@ -17,6 +17,9 @@ function KnowledgeGraph() {
   const [error, setError] = useState(null);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
   const [showJson, setShowJson] = useState(false);
 
   const EXAMPLE_QUESTIONS = [
@@ -538,6 +541,57 @@ function KnowledgeGraph() {
       setDocDiffResult(response.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to compare documentation');
+  const handleSendMessage = async () => {
+    if (!repoKey || !inputMessage.trim()) return;
+
+    const userMessage = { role: 'user', content: inputMessage };
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setInputMessage('');
+    setLoading(true);
+
+    try {
+      // Determine if it's a what-if scenario or regular query
+      const isWhatIf = inputMessage.toLowerCase().includes('what if') || inputMessage.toLowerCase().includes('scenario');
+      
+      let response;
+      if (isWhatIf) {
+        response = await api.post(`/api/query/what-if?repo_key=${encodeURIComponent(repoKey)}`, {
+          scenario: inputMessage,
+          include_impact_chain: true,
+          max_depth: 5
+        });
+        
+        const botMessage = {
+          role: 'assistant',
+          content: response.data.analysis,
+          type: 'what-if',
+          data: response.data
+        };
+        setMessages([...newMessages, botMessage]);
+      } else {
+        response = await api.post(`/api/query/ask?repo_key=${encodeURIComponent(repoKey)}`, {
+          query: inputMessage,
+          include_code: true,
+          max_context_elements: 10
+        });
+        
+        const botMessage = {
+          role: 'assistant',
+          content: response.data.answer,
+          type: 'qa',
+          data: response.data
+        };
+        setMessages([...newMessages, botMessage]);
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to process message');
+      const errorMessage = {
+        role: 'assistant',
+        content: `Error: ${err.response?.data?.detail || err.message || 'Failed to process message'}`,
+        type: 'error'
+      };
+      setMessages([...newMessages, errorMessage]);
     } finally {
       setLoadingDocDiff(false);
     }
@@ -613,6 +667,169 @@ function KnowledgeGraph() {
             )}
           </div>
         </div>
+
+        {error && <div className="error">{error}</div>}
+
+        {loading && !graphData && <div className="loading">Loading graph...</div>}
+
+        {graphData && (
+          <>
+            <div className="info-grid">
+              <div className="info-card">
+                <div className="info-card-label">Nodes</div>
+                <div className="info-card-value">{graphData.metadata?.total_nodes || 0}</div>
+              </div>
+              <div className="info-card">
+                <div className="info-card-label">Edges</div>
+                <div className="info-card-value">{graphData.metadata?.total_edges || 0}</div>
+              </div>
+              <div className="info-card">
+                <div className="info-card-label">Repository</div>
+                <div className="info-card-value">{graphData.metadata?.repository_name || 'N/A'}</div>
+              </div>
+            </div>
+
+            <div className="main-layout">
+              {/* Left side - Graph */}
+              <div className="graph-section">
+                <div ref={containerRef} className="graph-container" />
+              </div>
+
+              {/* Right side - Chatbot */}
+              <div className="chatbot-section">
+                <div className="card">
+                  <h2 className="card-title">Chat Assistant</h2>
+                  <div className="chat-messages">
+                    {messages.length === 0 ? (
+                      <div className="chat-welcome">
+                        <p>Ask me anything about the codebase! You can:</p>
+                        <ul>
+                          <li>Ask questions about the code</li>
+                          <li>Request "what if" scenarios</li>
+                          <li>Get explanations about components</li>
+                        </ul>
+                      </div>
+                    ) : (
+                      messages.map((message, idx) => (
+                        <div key={idx} className={`chat-message ${message.role}`}>
+                          <div className="message-content">
+                            {message.type === 'what-if' && message.data && (
+                              <div className="what-if-header">
+                                <span className={`risk-badge risk-${message.data.risk_level}`}>
+                                  {message.data.risk_level?.toUpperCase() || 'UNKNOWN'} RISK
+                                </span>
+                              </div>
+                            )}
+                            <ReactMarkdown 
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                code: ({node, inline, className, children, ...props}) => {
+                                  const match = /language-(\w+)/.exec(className || '');
+                                  return !inline && match ? (
+                                    <pre style={{
+                                      background: '#f4f4f4',
+                                      padding: '1rem',
+                                      borderRadius: '4px',
+                                      overflow: 'auto',
+                                      border: '1px solid #ddd'
+                                    }}>
+                                      <code className={className} {...props}>
+                                        {children}
+                                      </code>
+                                    </pre>
+                                  ) : (
+                                    <code className={className} style={{
+                                      background: '#f4f4f4',
+                                      padding: '0.2em 0.4em',
+                                      borderRadius: '3px',
+                                      fontSize: '0.9em'
+                                    }} {...props}>
+                                      {children}
+                                    </code>
+                                  );
+                                },
+                                p: ({node, ...props}) => <p style={{ marginBottom: '1rem', lineHeight: '1.6' }} {...props} />,
+                                h1: ({node, ...props}) => <h1 style={{ fontSize: '1.5rem', marginTop: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                                h2: ({node, ...props}) => <h2 style={{ fontSize: '1.3rem', marginTop: '1.3rem', marginBottom: '0.8rem' }} {...props} />,
+                                h3: ({node, ...props}) => <h3 style={{ fontSize: '1.1rem', marginTop: '1.1rem', marginBottom: '0.6rem' }} {...props} />,
+                                ul: ({node, ...props}) => <ul style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                                ol: ({node, ...props}) => <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
+                                li: ({node, ...props}) => <li style={{ marginBottom: '0.5rem' }} {...props} />,
+                                blockquote: ({node, ...props}) => (
+                                  <blockquote style={{
+                                    borderLeft: '4px solid #ddd',
+                                    paddingLeft: '1rem',
+                                    marginLeft: '0',
+                                    marginBottom: '1rem',
+                                    color: '#666',
+                                    fontStyle: 'italic'
+                                  }} {...props} />
+                                ),
+                                strong: ({node, ...props}) => <strong style={{ fontWeight: 'bold' }} {...props} />,
+                                em: ({node, ...props}) => <em style={{ fontStyle: 'italic' }} {...props} />,
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
+                            {message.type === 'qa' && message.data?.relevant_elements && message.data.relevant_elements.length > 0 && (
+                              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #ddd' }}>
+                                <strong>Relevant Elements:</strong>
+                                <ul style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                                  {message.data.relevant_elements.slice(0, 5).map((elem, idx) => (
+                                    <li key={idx}>{elem}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {message.type === 'what-if' && message.data && (
+                              <>
+                                {message.data.recommendations && message.data.recommendations.length > 0 && (
+                                  <div className="recommendations">
+                                    <h4>Recommendations:</h4>
+                                    <ul>
+                                      {message.data.recommendations.map((rec, idx) => (
+                                        <li key={idx}>{rec}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {message.data.impact_chain && message.data.impact_chain.length > 0 && (
+                                  <div style={{ marginTop: '1rem' }}>
+                                    <strong>Impact Chain ({message.data.impact_chain.length} impacts):</strong>
+                                    <ul style={{ fontSize: '0.9rem' }}>
+                                      {message.data.impact_chain.slice(0, 10).map((impact, idx) => (
+                                        <li key={idx}>
+                                          {impact.source} → {impact.target} (depth: {impact.depth})
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="chat-input">
+                    <input
+                      type="text"
+                      value={inputMessage}
+                      onChange={(e) => setInputMessage(e.target.value)}
+                      placeholder="ASK ANYTHING"
+                      onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                      disabled={loading}
+                    />
+                    <button onClick={handleSendMessage} className="btn btn-primary" disabled={loading}>
+                      {loading ? 'Sending...' : 'Send'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -790,6 +1007,136 @@ function KnowledgeGraph() {
           </div>
         </div>
       )}
+      {graphData && (
+        <div className="card" style={{ marginTop: '2rem' }}>
+          <h2 className="card-title">Database Schema</h2>
+          {loadingExplanation && (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+              Generating project explanation...
+            </div>
+          )}
+          {projectExplanation && !loadingExplanation && (
+            <div style={{ 
+              background: '#f8f9fa', 
+              padding: '1.5rem', 
+              borderRadius: '8px',
+              lineHeight: '1.8',
+              whiteSpace: 'pre-wrap',
+              fontFamily: 'system-ui, -apple-system, sans-serif'
+            }}>
+              {projectExplanation.explanation.split('\n').map((line, idx) => {
+                // Format headings
+                if (line.startsWith('#') || line.match(/^\d+\.\s+\*\*/)) {
+                  return <h3 key={idx} style={{ marginTop: '1rem', marginBottom: '0.5rem', color: '#333' }}>{line.replace(/^#+\s*/, '').replace(/\*\*/g, '')}</h3>;
+                }
+                // Format bold text
+                if (line.includes('**')) {
+                  const parts = line.split(/(\*\*.*?\*\*)/g);
+                  return (
+                    <p key={idx} style={{ marginBottom: '0.5rem' }}>
+                      {parts.map((part, pIdx) => 
+                        part.startsWith('**') && part.endsWith('**') ? 
+                          <strong key={pIdx}>{part.slice(2, -2)}</strong> : part
+                      )}
+                    </p>
+                  );
+                }
+                return <p key={idx} style={{ marginBottom: '0.5rem' }}>{line}</p>;
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {graphData && (
+        <div className="card" style={{ marginTop: '2rem' }}>
+          <h2 className="card-title">Subgraph Analysis</h2>
+          <p style={{ color: '#666', marginBottom: '1rem' }}>
+            Enter an element name (e.g., "UserService") to see what would be affected if you modify it.
+          </p>
+          <div className="query-input">
+            <input
+              type="text"
+              value={subgraphElement}
+              onChange={(e) => setSubgraphElement(e.target.value)}
+              placeholder="Enter element name (e.g., UserService, OrderService)"
+              onKeyPress={(e) => e.key === 'Enter' && handleSubgraphExtraction()}
+            />
+            <button onClick={handleSubgraphExtraction} className="btn btn-primary" disabled={loading}>
+              Extract Subgraph
+            </button>
+          </div>
+          {subgraphContext && (
+            <div className="answer-box" style={{ marginTop: '1rem' }}>
+              <h3>Impact Context: {subgraphContext.target_service || subgraphContext.target_element_id}</h3>
+              {subgraphContext.impact_summary && (
+                <div style={{ 
+                  background: '#f8f9fa', 
+                  padding: '1rem', 
+                  borderRadius: '8px', 
+                  marginBottom: '1rem',
+                  whiteSpace: 'pre-line'
+                }}>
+                  {subgraphContext.impact_summary}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                {subgraphContext.direct_dependents && subgraphContext.direct_dependents.length > 0 && (
+                  <div>
+                    <strong>Direct Dependents ({subgraphContext.direct_dependents.length}):</strong>
+                    <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                      {subgraphContext.direct_dependents.slice(0, 10).map((dep, idx) => (
+                        <li key={idx}>{dep}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {subgraphContext.affected_apis && subgraphContext.affected_apis.length > 0 && (
+                  <div>
+                    <strong>Affected APIs ({subgraphContext.affected_apis.length}):</strong>
+                    <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                      {subgraphContext.affected_apis.slice(0, 10).map((api, idx) => (
+                        <li key={idx}>{api}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {subgraphContext.database_tables && subgraphContext.database_tables.length > 0 && (
+                  <div>
+                    <strong>Database Tables ({subgraphContext.database_tables.length}):</strong>
+                    <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                      {subgraphContext.database_tables.slice(0, 10).map((table, idx) => (
+                        <li key={idx}>{table}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {subgraphContext.agents_involved && subgraphContext.agents_involved.length > 0 && (
+                  <div>
+                    <strong>Agents Involved ({subgraphContext.agents_involved.length}):</strong>
+                    <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                      {subgraphContext.agents_involved.slice(0, 10).map((agent, idx) => (
+                        <li key={idx}>{agent}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {subgraphContext.workflows_involved && subgraphContext.workflows_involved.length > 0 && (
+                  <div>
+                    <strong>Workflows Involved ({subgraphContext.workflows_involved.length}):</strong>
+                    <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                      {subgraphContext.workflows_involved.slice(0, 10).map((workflow, idx) => (
+                        <li key={idx}>{workflow}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
