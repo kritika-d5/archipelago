@@ -186,6 +186,73 @@ Answer:"""
                 sources=[]
             )
     
+    def explain_project(self, codebase_graph: CodebaseGraph) -> str:
+        """
+        Generate a comprehensive explanation of the project including database schema.
+        
+        Args:
+            codebase_graph: Codebase graph
+            
+        Returns:
+            Project explanation string
+        """
+        try:
+            # Build context about the project
+            context_parts = []
+            
+            # Database information only
+            if codebase_graph.metadata.database_languages:
+                context_parts.append(f"\nDatabase Technologies: {', '.join([lang.value for lang in codebase_graph.metadata.database_languages])}")
+            
+            if codebase_graph.database_schemas:
+                context_parts.append(f"\nDatabase Schemas ({len(codebase_graph.database_schemas)}):")
+                for schema in codebase_graph.database_schemas:
+                    context_parts.append(f"  - {schema.name} ({schema.database_language.value})")
+                    if schema.orm_framework:
+                        context_parts.append(f"    ORM: {schema.orm_framework}")
+                    if schema.tables:
+                        context_parts.append(f"    Tables ({len(schema.tables)}):")
+                        for table in schema.tables[:10]:  # Limit to first 10
+                            context_parts.append(f"      • {table.name} ({len(table.columns)} columns)")
+                            if table.primary_keys:
+                                context_parts.append(f"        Primary Keys: {', '.join(table.primary_keys)}")
+            
+            # Only include database-related information
+            
+            context = "\n".join(context_parts)
+            
+            # Build prompt - focus only on database schema
+            prompt = f"""You are an expert database architect. Analyze the following database structure and provide a clear explanation.
+
+{context}
+
+Provide a focused explanation of the database schema only. Include:
+1. **Database Technologies**: What database systems are used
+2. **Database Schema Structure**: Overview of schemas and their purpose
+3. **Tables and Relationships**: Detailed explanation of each table, its columns, primary keys, foreign keys, and relationships to other tables
+4. **Data Model**: What kind of data is stored and how tables relate to each other
+
+Keep it concise and focused only on the database schema. Do not include general project information, architecture, or other components.
+
+Database Schema Explanation:"""
+            
+            # Call Groq API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert database architect who explains database schemas clearly and concisely, focusing only on database structure, tables, and relationships."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logger.error(f"Error explaining project: {e}")
+            return f"Error generating project explanation: {str(e)}"
+    
     def analyze_what_if(self, codebase_graph: CodebaseGraph,
                        request: WhatIfRequest) -> WhatIfResponse:
         """

@@ -17,6 +17,11 @@ class DependencyType(str, Enum):
     REFERENCE = "reference"
     DATA_FLOW = "data_flow"
     CONTROL_FLOW = "control_flow"
+    USES_AGENT = "uses_agent"
+    TRIGGERS_WORKFLOW = "triggers_workflow"
+    QUERIES_DATABASE = "queries_database"
+    WRITES_TO_DATABASE = "writes_to_database"
+    READS_FROM_DATABASE = "reads_from_database"
 
 
 class CodeElementType(str, Enum):
@@ -30,6 +35,12 @@ class CodeElementType(str, Enum):
     INTERFACE = "interface"
     ENUM = "enum"
     TYPE = "type"
+    AGENT = "agent"
+    WORKFLOW = "workflow"
+    DATABASE_SCHEMA = "database_schema"
+    DATABASE_TABLE = "database_table"
+    DATABASE_COLUMN = "database_column"
+    API_ENDPOINT = "api_endpoint"
 
 
 class Language(str, Enum):
@@ -41,6 +52,20 @@ class Language(str, Enum):
     CPP = "cpp"
     GO = "go"
     RUST = "rust"
+    UNKNOWN = "unknown"
+
+
+class DatabaseLanguage(str, Enum):
+    """Supported database languages and technologies."""
+    SQL = "sql"
+    POSTGRESQL = "postgresql"
+    MYSQL = "mysql"
+    SQLITE = "sqlite"
+    MONGODB = "mongodb"
+    REDIS = "redis"
+    CASSANDRA = "cassandra"
+    ELASTICSEARCH = "elasticsearch"
+    NEO4J = "neo4j"
     UNKNOWN = "unknown"
 
 
@@ -124,6 +149,59 @@ class ClassInfo(BaseModel):
     instance_variables: List[str] = Field(default_factory=list, description="Instance variable IDs")
 
 
+class AgentInfo(BaseModel):
+    """Agent-specific information."""
+    agent_type: str = Field(..., description="Type of agent (LLM, RAG, Tool-using, etc.)")
+    tools: List[str] = Field(default_factory=list, description="Tool IDs available to agent")
+    workflows: List[str] = Field(default_factory=list, description="Workflow IDs this agent participates in")
+    capabilities: List[str] = Field(default_factory=list, description="Agent capabilities")
+    llm_provider: Optional[str] = Field(None, description="LLM provider (OpenAI, Groq, etc.)")
+    model_name: Optional[str] = Field(None, description="Model name used by agent")
+
+
+class WorkflowInfo(BaseModel):
+    """Workflow-specific information."""
+    workflow_type: str = Field(..., description="Type of workflow (sequential, parallel, conditional, etc.)")
+    steps: List[str] = Field(default_factory=list, description="Step IDs in workflow")
+    agents: List[str] = Field(default_factory=list, description="Agent IDs participating in workflow")
+    triggers: List[str] = Field(default_factory=list, description="Trigger conditions")
+    outputs: List[str] = Field(default_factory=list, description="Output element IDs")
+
+
+class DatabaseColumn(BaseModel):
+    """Database column information."""
+    name: str = Field(..., description="Column name")
+    data_type: str = Field(..., description="Column data type")
+    is_nullable: bool = Field(True, description="Whether column allows NULL")
+    is_primary_key: bool = Field(False, description="Whether column is primary key")
+    is_foreign_key: bool = Field(False, description="Whether column is foreign key")
+    foreign_key_table: Optional[str] = Field(None, description="Referenced table if foreign key")
+    foreign_key_column: Optional[str] = Field(None, description="Referenced column if foreign key")
+    default_value: Optional[str] = Field(None, description="Default value")
+    constraints: List[str] = Field(default_factory=list, description="Additional constraints")
+
+
+class DatabaseTable(BaseModel):
+    """Database table information."""
+    name: str = Field(..., description="Table name")
+    schema_name: Optional[str] = Field(None, description="Schema name")
+    columns: List[DatabaseColumn] = Field(default_factory=list, description="Table columns")
+    indexes: List[str] = Field(default_factory=list, description="Index names")
+    primary_keys: List[str] = Field(default_factory=list, description="Primary key column names")
+    foreign_keys: Dict[str, str] = Field(default_factory=dict, description="Foreign key mappings")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional table metadata")
+
+
+class DatabaseSchema(BaseModel):
+    """Database schema information."""
+    name: str = Field(..., description="Schema/database name")
+    database_language: DatabaseLanguage = Field(..., description="Database language/technology")
+    tables: List[DatabaseTable] = Field(default_factory=list, description="Tables in schema")
+    connection_string: Optional[str] = Field(None, description="Connection string pattern")
+    orm_framework: Optional[str] = Field(None, description="ORM framework used (SQLAlchemy, Django ORM, etc.)")
+    migration_files: List[str] = Field(default_factory=list, description="Migration file paths")
+
+
 class CodebaseMetadata(BaseModel):
     """Overall codebase metadata."""
     repository_url: Optional[str] = Field(None, description="Repository URL")
@@ -134,6 +212,7 @@ class CodebaseMetadata(BaseModel):
     total_files: int = Field(..., description="Total number of files parsed")
     total_lines: int = Field(..., description="Total lines of code")
     languages: List[Language] = Field(default_factory=list, description="Languages found in codebase")
+    database_languages: List[DatabaseLanguage] = Field(default_factory=list, description="Database languages/technologies used")
     main_entry_points: List[str] = Field(default_factory=list, description="Main entry point file paths")
     test_files: List[str] = Field(default_factory=list, description="Test file paths")
     config_files: List[str] = Field(default_factory=list, description="Configuration file paths")
@@ -149,11 +228,17 @@ class CodebaseGraph(BaseModel):
     elements: List[CodeElement] = Field(default_factory=list, description="All code elements")
     dependencies: List[Dependency] = Field(default_factory=list, description="All dependencies")
     class_info: Dict[str, ClassInfo] = Field(default_factory=dict, description="Class-specific information by element ID")
+    agent_info: Dict[str, AgentInfo] = Field(default_factory=dict, description="Agent-specific information by element ID")
+    workflow_info: Dict[str, WorkflowInfo] = Field(default_factory=dict, description="Workflow-specific information by element ID")
+    database_schemas: List[DatabaseSchema] = Field(default_factory=list, description="Database schemas in codebase")
     
     # Indexes for fast lookup
     element_index: Dict[str, CodeElement] = Field(default_factory=dict, description="Element ID to element mapping")
     module_index: Dict[str, Module] = Field(default_factory=dict, description="Module ID to module mapping")
     file_index: Dict[str, List[str]] = Field(default_factory=dict, description="File path to element IDs mapping")
+    agent_index: Dict[str, str] = Field(default_factory=dict, description="Agent name to element ID mapping")
+    workflow_index: Dict[str, str] = Field(default_factory=dict, description="Workflow name to element ID mapping")
+    database_index: Dict[str, DatabaseSchema] = Field(default_factory=dict, description="Database name to schema mapping")
     
     def build_indexes(self):
         """Build indexes for fast lookups."""
@@ -188,6 +273,25 @@ class CodebaseGraph(BaseModel):
     def get_dependents_of_element(self, element_id: str) -> List[Dependency]:
         """Get all elements that depend on this element."""
         return [dep for dep in self.dependencies if dep.target_id == element_id]
+    
+    def get_agents(self) -> List[CodeElement]:
+        """Get all agent elements."""
+        return [elem for elem in self.elements if elem.type == CodeElementType.AGENT]
+    
+    def get_workflows(self) -> List[CodeElement]:
+        """Get all workflow elements."""
+        return [elem for elem in self.elements if elem.type == CodeElementType.WORKFLOW]
+    
+    def get_database_schemas(self) -> List[DatabaseSchema]:
+        """Get all database schemas."""
+        return self.database_schemas
+    
+    def get_database_tables(self) -> List[DatabaseTable]:
+        """Get all database tables across all schemas."""
+        tables = []
+        for schema in self.database_schemas:
+            tables.extend(schema.tables)
+        return tables
 
 
 class ParsingRequest(BaseModel):
@@ -240,3 +344,20 @@ class WhatIfResponse(BaseModel):
     impact_chain: List[Dict[str, Any]] = Field(default_factory=list, description="Impact propagation chain")
     risk_level: str = Field(..., description="Risk level (low, medium, high, critical)")
     recommendations: List[str] = Field(default_factory=list, description="Recommendations")
+
+
+class SubgraphContext(BaseModel):
+    """Structured context object for subgraph extraction."""
+    target_service: Optional[str] = Field(None, description="Target service/element name")
+    target_element_id: Optional[str] = Field(None, description="Target element ID")
+    direct_dependents: List[str] = Field(default_factory=list, description="Direct dependent element IDs")
+    transitive_dependents: List[str] = Field(default_factory=list, description="Transitive dependent element IDs")
+    incoming_dependencies: List[str] = Field(default_factory=list, description="Incoming dependency element IDs")
+    outgoing_dependencies: List[str] = Field(default_factory=list, description="Outgoing dependency element IDs")
+    affected_apis: List[str] = Field(default_factory=list, description="Affected API endpoint paths")
+    database_tables: List[str] = Field(default_factory=list, description="Database tables touched")
+    database_operations: List[str] = Field(default_factory=list, description="Database operations (read/write)")
+    agents_involved: List[str] = Field(default_factory=list, description="Agent IDs involved")
+    workflows_involved: List[str] = Field(default_factory=list, description="Workflow IDs involved")
+    related_files: List[str] = Field(default_factory=list, description="Related file paths")
+    impact_summary: str = Field("", description="Human-readable impact summary")

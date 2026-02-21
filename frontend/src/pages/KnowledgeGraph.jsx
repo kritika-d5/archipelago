@@ -17,6 +17,10 @@ function KnowledgeGraph() {
   const [whatIfResult, setWhatIfResult] = useState(null);
   const [showJson, setShowJson] = useState(false);
   const [jsonData, setJsonData] = useState(null);
+  const [subgraphElement, setSubgraphElement] = useState('');
+  const [subgraphContext, setSubgraphContext] = useState(null);
+  const [projectExplanation, setProjectExplanation] = useState(null);
+  const [loadingExplanation, setLoadingExplanation] = useState(false);
   const cyRef = useRef(null);
   const containerRef = useRef(null);
 
@@ -55,12 +59,27 @@ function KnowledgeGraph() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(`/api/graph/${encodeURIComponent(key)}/visualize`);
+      const response = await api.get(`/api/graph/${encodeURIComponent(key)}/visualize?important_only=false`);
       setGraphData(response.data);
+      // Load project explanation
+      loadProjectExplanation(key);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to load graph');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadProjectExplanation = async (key) => {
+    setLoadingExplanation(true);
+    try {
+      const response = await api.get(`/api/graph/${encodeURIComponent(key)}/explain`);
+      setProjectExplanation(response.data);
+    } catch (err) {
+      console.error('Failed to load project explanation:', err);
+      // Don't show error, just don't display explanation
+    } finally {
+      setLoadingExplanation(false);
     }
   };
 
@@ -80,6 +99,7 @@ function KnowledgeGraph() {
     // Destroy existing instance
     if (cyRef.current) {
       cyRef.current.destroy();
+      cyRef.current = null;
     }
 
     // Create Cytoscape instance
@@ -170,6 +190,39 @@ function KnowledgeGraph() {
           }
         },
         {
+          selector: 'node[category="workflow"]',
+          style: {
+            'background-color': '#16a085',
+            'shape': 'round-diamond',
+            'width': 70,
+            'height': 70,
+            'border-width': 3,
+            'border-color': '#1abc9c',
+          }
+        },
+        {
+          selector: 'node[category="database_schema"]',
+          style: {
+            'background-color': '#d35400',
+            'shape': 'round-octagon',
+            'width': 80,
+            'height': 80,
+            'border-width': 3,
+            'border-color': '#e67e22',
+          }
+        },
+        {
+          selector: 'node[category="database_table"]',
+          style: {
+            'background-color': '#c0392b',
+            'shape': 'round-hexagon',
+            'width': 60,
+            'height': 60,
+            'border-width': 2,
+            'border-color': '#e74c3c',
+          }
+        },
+        {
           selector: 'edge',
           style: {
             'width': 'mapData(strength, 0, 1, 1, 4)',
@@ -178,6 +231,16 @@ function KnowledgeGraph() {
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
             'opacity': 0.7,
+            'label': 'data(relation)',
+            'text-rotation': 'autorotate',
+            'text-margin-y': -10,
+            'font-size': '10px',
+            'color': '#34495e',
+            'text-outline-width': 2,
+            'text-outline-color': '#fff',
+            'text-background-color': '#fff',
+            'text-background-opacity': 0.8,
+            'text-background-padding': '3px',
           }
         },
         {
@@ -203,27 +266,71 @@ function KnowledgeGraph() {
             'target-arrow-color': '#95a5a6',
             'line-style': 'dashed',
           }
+        },
+        {
+          selector: 'edge[dependency_type="uses_agent"]',
+          style: {
+            'line-color': '#e74c3c',
+            'target-arrow-color': '#e74c3c',
+            'width': 3,
+            'line-style': 'dotted',
+          }
+        },
+        {
+          selector: 'edge[dependency_type="triggers_workflow"]',
+          style: {
+            'line-color': '#16a085',
+            'target-arrow-color': '#16a085',
+            'width': 3,
+            'line-style': 'dashed',
+          }
+        },
+        {
+          selector: 'edge[dependency_type="queries_database"]',
+          style: {
+            'line-color': '#d35400',
+            'target-arrow-color': '#d35400',
+            'width': 2.5,
+          }
+        },
+        {
+          selector: 'edge[dependency_type="reads_from_database"]',
+          style: {
+            'line-color': '#3498db',
+            'target-arrow-color': '#3498db',
+            'width': 2,
+            'line-style': 'dashed',
+          }
+        },
+        {
+          selector: 'edge[dependency_type="writes_to_database"]',
+          style: {
+            'line-color': '#c0392b',
+            'target-arrow-color': '#c0392b',
+            'width': 2.5,
+            'line-style': 'solid',
+          }
         }
       ],
       layout: {
         name: 'cose-bilkent',
-        idealEdgeLength: 150,
-        nodeOverlap: 50,
+        idealEdgeLength: 300,
+        nodeOverlap: 10,
         refresh: 30,
         fit: true,
-        padding: 50,
+        padding: 150,
         randomize: true,
-        componentSpacing: 150,
-        nodeRepulsion: 850000,
-        edgeElasticity: 150,
-        nestingFactor: 1.2,
-        gravity: 0.25,
-        numIter: 2500,
-        initialTemp: 200,
-        coolingFactor: 0.95,
-        minTemp: 1.0,
+        componentSpacing: 300,
+        nodeRepulsion: 2000000,
+        edgeElasticity: 300,
+        nestingFactor: 2.0,
+        gravity: 0.1,
+        numIter: 4000,
+        initialTemp: 300,
+        coolingFactor: 0.99,
+        minTemp: 0.1,
         animate: true,
-        animationDuration: 1000,
+        animationDuration: 2000,
         animationEasing: 'ease-out'
       }
     });
@@ -232,6 +339,12 @@ function KnowledgeGraph() {
       const node = evt.target;
       const data = node.data();
       alert(`Node: ${data.label}\nType: ${data.type}\nCategory: ${data.category}\nFile: ${data.file_path}`);
+    });
+    
+    cyRef.current.on('tap', 'edge', (evt) => {
+      const edge = evt.target;
+      const data = edge.data();
+      alert(`Edge Relation: ${data.relation || data.dependency_type || 'unknown'}\nStrength: ${data.strength || 1.0}`);
     });
 
     cyRef.current.on('mouseover', 'node', (evt) => {
@@ -283,6 +396,21 @@ function KnowledgeGraph() {
       setWhatIfResult(response.data);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to perform analysis');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubgraphExtraction = async () => {
+    if (!repoKey || !subgraphElement.trim()) return;
+
+    setLoading(true);
+    setSubgraphContext(null);
+    try {
+      const response = await api.get(`/api/graph/${encodeURIComponent(repoKey)}/subgraph/${encodeURIComponent(subgraphElement)}?max_depth=3`);
+      setSubgraphContext(response.data);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to extract subgraph');
     } finally {
       setLoading(false);
     }
@@ -353,6 +481,47 @@ function KnowledgeGraph() {
         )}
       </div>
 
+        {graphData && (
+        <div className="card" style={{ marginTop: '2rem' }}>
+          <h2 className="card-title">Database Schema</h2>
+          {loadingExplanation && (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+              Generating project explanation...
+            </div>
+          )}
+          {projectExplanation && !loadingExplanation && (
+            <div style={{ 
+              background: '#f8f9fa', 
+              padding: '1.5rem', 
+              borderRadius: '8px',
+              lineHeight: '1.8',
+              whiteSpace: 'pre-wrap',
+              fontFamily: 'system-ui, -apple-system, sans-serif'
+            }}>
+              {projectExplanation.explanation.split('\n').map((line, idx) => {
+                // Format headings
+                if (line.startsWith('#') || line.match(/^\d+\.\s+\*\*/)) {
+                  return <h3 key={idx} style={{ marginTop: '1rem', marginBottom: '0.5rem', color: '#333' }}>{line.replace(/^#+\s*/, '').replace(/\*\*/g, '')}</h3>;
+                }
+                // Format bold text
+                if (line.includes('**')) {
+                  const parts = line.split(/(\*\*.*?\*\*)/g);
+                  return (
+                    <p key={idx} style={{ marginBottom: '0.5rem' }}>
+                      {parts.map((part, pIdx) => 
+                        part.startsWith('**') && part.endsWith('**') ? 
+                          <strong key={pIdx}>{part.slice(2, -2)}</strong> : part
+                      )}
+                    </p>
+                  );
+                }
+                return <p key={idx} style={{ marginBottom: '0.5rem' }}>{line}</p>;
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {showJson && jsonData && (
         <div className="card" style={{ marginTop: '2rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -403,6 +572,93 @@ function KnowledgeGraph() {
                     </ul>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          <div className="card query-section">
+            <h2 className="card-title">Subgraph Extraction</h2>
+            <p style={{ color: '#666', marginBottom: '1rem' }}>
+              Enter an element name (e.g., "UserService") to see what would be affected if you modify it.
+            </p>
+            <div className="query-input">
+              <input
+                type="text"
+                value={subgraphElement}
+                onChange={(e) => setSubgraphElement(e.target.value)}
+                placeholder="Enter element name (e.g., UserService, OrderService)"
+                onKeyPress={(e) => e.key === 'Enter' && handleSubgraphExtraction()}
+              />
+              <button onClick={handleSubgraphExtraction} className="btn btn-primary" disabled={loading}>
+                Extract Subgraph
+              </button>
+            </div>
+            {subgraphContext && (
+              <div className="answer-box" style={{ marginTop: '1rem' }}>
+                <h3>Impact Context: {subgraphContext.target_service || subgraphContext.target_element_id}</h3>
+                {subgraphContext.impact_summary && (
+                  <div style={{ 
+                    background: '#f8f9fa', 
+                    padding: '1rem', 
+                    borderRadius: '8px', 
+                    marginBottom: '1rem',
+                    whiteSpace: 'pre-line'
+                  }}>
+                    {subgraphContext.impact_summary}
+                  </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                  {subgraphContext.direct_dependents && subgraphContext.direct_dependents.length > 0 && (
+                    <div>
+                      <strong>Direct Dependents ({subgraphContext.direct_dependents.length}):</strong>
+                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                        {subgraphContext.direct_dependents.slice(0, 10).map((dep, idx) => (
+                          <li key={idx}>{dep}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {subgraphContext.affected_apis && subgraphContext.affected_apis.length > 0 && (
+                    <div>
+                      <strong>Affected APIs ({subgraphContext.affected_apis.length}):</strong>
+                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                        {subgraphContext.affected_apis.slice(0, 10).map((api, idx) => (
+                          <li key={idx}>{api}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {subgraphContext.database_tables && subgraphContext.database_tables.length > 0 && (
+                    <div>
+                      <strong>Database Tables ({subgraphContext.database_tables.length}):</strong>
+                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                        {subgraphContext.database_tables.slice(0, 10).map((table, idx) => (
+                          <li key={idx}>{table}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {subgraphContext.agents_involved && subgraphContext.agents_involved.length > 0 && (
+                    <div>
+                      <strong>Agents Involved ({subgraphContext.agents_involved.length}):</strong>
+                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                        {subgraphContext.agents_involved.slice(0, 10).map((agent, idx) => (
+                          <li key={idx}>{agent}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {subgraphContext.workflows_involved && subgraphContext.workflows_involved.length > 0 && (
+                    <div>
+                      <strong>Workflows Involved ({subgraphContext.workflows_involved.length}):</strong>
+                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
+                        {subgraphContext.workflows_involved.slice(0, 10).map((workflow, idx) => (
+                          <li key={idx}>{workflow}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -8,7 +8,9 @@ from app.api.parse import parsed_graphs
 from app.core.db import save_graph, save_parsed_data, get_graph, get_all_graphs  # IMPORT DB FUNCTIONS
 from app.knowledge_graph.code_parser import parse_repository as simple_parse_repository
 from app.agents.graph_agent import KnowledgeGraphBuilder
+from app.agents.architectural_graph import ArchitecturalGraphBuilder
 from app.core.utils import clone_or_pull_repo
+from app.schemas.graph_schema import SubgraphContext
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -16,7 +18,8 @@ router = APIRouter(prefix="/api/graph", tags=["graph"])
 
 
 @router.get("/{repo_key:path}/visualize")
-async def get_graph_visualization(repo_key: str, depth: Optional[int] = None):
+async def get_graph_visualization(repo_key: str, depth: Optional[int] = None, 
+                                  important_only: bool = False):
     try:
         decoded_key = unquote(repo_key)
     except Exception:
@@ -53,15 +56,14 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None):
         raise HTTPException(status_code=404, detail=error_msg)
     
     graph_data = parsed_graphs[actual_key]["graph"]
-    builder = GraphBuilder()
     
+    # Use legacy builder (original approach)
+    builder = GraphBuilder()
     if depth:
-        # Get subgraph with specific depth
         all_element_ids = [elem.id for elem in graph_data.elements[:50]]
         visualization = builder.get_subgraph(graph_data, all_element_ids, depth=depth)
     else:
-        # Get full graph
-        visualization = builder.get_graph_for_visualization(graph_data)
+        visualization = builder.get_graph_for_visualization(graph_data, filter_important_only=False)
     
     # SAVE TO MONGODB
     save_graph_to_db(actual_key, visualization)
@@ -286,3 +288,133 @@ async def test_db_connection():
     """Test MongoDB connection and return status."""
     from app.core.db import test_connection
     return test_connection()
+
+
+@router.get("/{repo_key:path}/explain")
+async def explain_project(repo_key: str):
+    """
+    Get LLM-generated explanation of the project including database schema.
+    """
+    try:
+        decoded_key = unquote(repo_key)
+    except Exception:
+        decoded_key = repo_key
+    
+    # Find the graph
+    actual_key = None
+    for test_key in [decoded_key, repo_key]:
+        if test_key in parsed_graphs:
+            actual_key = test_key
+            break
+    
+    if actual_key is None:
+        for stored_key in parsed_graphs.keys():
+            if stored_key == decoded_key or stored_key == repo_key:
+                actual_key = stored_key
+                break
+            if stored_key.replace('://', '') == decoded_key.replace('://', ''):
+                actual_key = stored_key
+                break
+    
+    if actual_key is None:
+        raise HTTPException(status_code=404, detail=f"Graph not found for key: {decoded_key}")
+    
+    graph_data = parsed_graphs[actual_key]["graph"]
+    
+    # Use LLM service to explain project
+    try:
+        from app.core.llm import LLMService
+        llm_service = LLMService()
+        explanation = llm_service.explain_project(graph_data)
+        return {"explanation": explanation, "repository_name": graph_data.metadata.repository_name}
+    except Exception as e:
+        logger.error(f"Error generating explanation: {e}")
+        # Fallback: return basic info
+        return {
+            "explanation": f"Project: {graph_data.metadata.repository_name}\n\nDatabase Languages: {', '.join([lang.value for lang in graph_data.metadata.database_languages]) if graph_data.metadata.database_languages else 'None detected'}\n\nDatabase Schemas: {len(graph_data.database_schemas)}\n\nNote: LLM explanation unavailable. {str(e)}",
+            "repository_name": graph_data.metadata.repository_name
+        }
+
+
+@router.get("/{repo_key:path}/subgraph/{element_id:path}")
+async def get_subgraph_context(repo_key: str, element_id: str, max_depth: int = 3):
+    """
+    Extract subgraph context for a given element.
+    Returns structured context showing what would be affected if the element is modified.
+    """
+    try:
+        decoded_key = unquote(repo_key)
+    except Exception:
+        decoded_key = repo_key
+    
+    # Find the graph
+    actual_key = None
+    for test_key in [decoded_key, repo_key]:
+        if test_key in parsed_graphs:
+            actual_key = test_key
+            break
+    
+    if actual_key is None:
+        for stored_key in parsed_graphs.keys():
+            if stored_key == decoded_key or stored_key == repo_key:
+                actual_key = stored_key
+                break
+            if stored_key.replace('://', '') == decoded_key.replace('://', ''):
+                actual_key = stored_key
+                break
+    
+    if actual_key is None:
+        raise HTTPException(status_code=404, detail=f"Graph not found for key: {decoded_key}")
+    
+    graph_data = parsed_graphs[actual_key]["graph"]
+    builder = GraphBuilder()
+    
+    # Extract subgraph context
+    context = builder.extract_subgraph_context(graph_data, element_id, max_depth=max_depth)
+    
+    return context.dict()
+    """
+    Extract subgraph context for a given element.
+    Returns structured context showing what would be affected if the element is modified.
+    
+    Example: GET /api/graph/{repo_key}/subgraph/UserService
+    Returns: {
+        "target_service": "UserService",
+        "direct_dependents": [...],
+        "transitive_dependents": [...],
+        "affected_apis": [...],
+        "database_tables": [...],
+        ...
+    }
+    """
+    try:
+        decoded_key = unquote(repo_key)
+    except Exception:
+        decoded_key = repo_key
+    
+    # Find the graph
+    actual_key = None
+    for test_key in [decoded_key, repo_key]:
+        if test_key in parsed_graphs:
+            actual_key = test_key
+            break
+    
+    if actual_key is None:
+        for stored_key in parsed_graphs.keys():
+            if stored_key == decoded_key or stored_key == repo_key:
+                actual_key = stored_key
+                break
+            if stored_key.replace('://', '') == decoded_key.replace('://', ''):
+                actual_key = stored_key
+                break
+    
+    if actual_key is None:
+        raise HTTPException(status_code=404, detail=f"Graph not found for key: {decoded_key}")
+    
+    graph_data = parsed_graphs[actual_key]["graph"]
+    builder = GraphBuilder()
+    
+    # Extract subgraph context
+    context = builder.extract_subgraph_context(graph_data, element_id, max_depth=max_depth)
+    
+    return context.dict()

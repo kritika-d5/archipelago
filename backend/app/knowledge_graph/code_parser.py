@@ -9,7 +9,8 @@ from datetime import datetime
 from app.schemas.graph_schema import (
     CodeElement, CodeElementType, Language, Parameter, ReturnType,
     Dependency, DependencyType, Module, CodebaseGraph, CodebaseMetadata,
-    ClassInfo
+    ClassInfo, AgentInfo, WorkflowInfo, DatabaseSchema, DatabaseTable,
+    DatabaseColumn, DatabaseLanguage
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,14 @@ class CodeParser:
             Language.RUST: {'.rs'},
         }
         
+        # Database file extensions
+        self.database_extensions = {
+            DatabaseLanguage.SQL: {'.sql'},
+            DatabaseLanguage.POSTGRESQL: {'.sql'},
+            DatabaseLanguage.MYSQL: {'.sql'},
+            DatabaseLanguage.SQLITE: {'.sql', '.db', '.sqlite', '.sqlite3'},
+        }
+        
         # Ignore patterns
         self.ignore_patterns = [
             '__pycache__', '.git', '.svn', '.hg',
@@ -52,6 +61,24 @@ class CodeParser:
             '.pytest_cache', '.mypy_cache', '.idea', '.vscode',
             'dist', 'build', '.next', '.nuxt'
         ]
+        
+        # Agent detection patterns
+        self.agent_keywords = ['agent', 'llm', 'rag', 'assistant', 'chatbot', 'gpt', 'claude', 'groq']
+        self.agent_base_classes = ['Agent', 'BaseAgent', 'LLMAgent', 'RAGAgent', 'ToolAgent']
+        
+        # Workflow detection patterns
+        self.workflow_keywords = ['workflow', 'pipeline', 'orchestrate', 'taskflow', 'dag', 'celery']
+        self.workflow_decorators = ['@workflow', '@task', '@pipeline', '@celery_task']
+        
+        # Database detection patterns
+        self.orm_patterns = {
+            'sqlalchemy': ['SQLAlchemy', 'Base', 'declarative_base', 'db.Model'],
+            'django': ['models.Model', 'django.db'],
+            'peewee': ['Model', 'peewee'],
+            'tortoise': ['tortoise.models', 'Model'],
+            'mongodb': ['mongoengine', 'Document', 'pymongo'],
+            'redis': ['redis', 'Redis'],
+        }
     
     def detect_language(self, file_path: Path) -> Language:
         """Detect programming language from file extension."""
@@ -144,15 +171,44 @@ class CodeParser:
                         imports.append(import_str)
                         module.imports.append(import_str)
             
-            # Parse classes
+            # Parse classes - store agent/workflow info in module metadata temporarily
+            agent_info_temp = {}
+            workflow_info_temp = {}
+            
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
-                    class_elem, class_deps = self._parse_python_class(
-                        node, file_path, repo_path, content
-                    )
-                    elements.append(class_elem)
-                    dependencies.extend(class_deps)
-                    module.element_ids.append(class_elem.id)
+                    # Check if it's an agent
+                    if self._is_agent_class(node, content):
+                        agent_elem, agent_deps, agent_info = self._parse_python_agent(
+                            node, file_path, repo_path, content
+                        )
+                        elements.append(agent_elem)
+                        dependencies.extend(agent_deps)
+                        module.element_ids.append(agent_elem.id)
+                        agent_info_temp[agent_elem.id] = agent_info
+                    # Check if it's a workflow
+                    elif self._is_workflow_class(node, content):
+                        workflow_elem, workflow_deps, workflow_info = self._parse_python_workflow(
+                            node, file_path, repo_path, content
+                        )
+                        elements.append(workflow_elem)
+                        dependencies.extend(workflow_deps)
+                        module.element_ids.append(workflow_elem.id)
+                        workflow_info_temp[workflow_elem.id] = workflow_info
+                    # Regular class
+                    else:
+                        class_elem, class_deps = self._parse_python_class(
+                            node, file_path, repo_path, content
+                        )
+                        elements.append(class_elem)
+                        dependencies.extend(class_deps)
+                        module.element_ids.append(class_elem.id)
+            
+            # Store agent/workflow info in module metadata for later extraction
+            if agent_info_temp:
+                module.metadata['agent_info'] = agent_info_temp
+            if workflow_info_temp:
+                module.metadata['workflow_info'] = workflow_info_temp
             
             # Parse functions (not methods)
             for node in ast.walk(tree):
@@ -169,6 +225,11 @@ class CodeParser:
                         elements.append(func_elem)
                         dependencies.extend(func_deps)
                         module.element_ids.append(func_elem.id)
+            
+            # Detect database models/schemas
+            db_elements, db_deps = self._detect_database_models(tree, file_path, repo_path, content)
+            elements.extend(db_elements)
+            dependencies.extend(db_deps)
             
             return elements, dependencies, module
             
@@ -363,11 +424,18 @@ class CodeParser:
         all_elements = []
         all_dependencies = []
         all_modules = []
+        agent_info_dict = {}
+        workflow_info_dict = {}
+        database_schemas_list = []
         total_lines = 0
         languages_found = set()
+        database_languages_found = set()
         
         files = self.get_all_files(repo_path)
         logger.info(f"Found {len(files)} files to parse")
+        
+        # Track database schemas by name
+        db_schema_map = {}
         
         for file_path in files:
             try:
@@ -375,6 +443,45 @@ class CodeParser:
                 all_elements.extend(elements)
                 all_dependencies.extend(dependencies)
                 all_modules.append(module)
+                
+                # Extract agent and workflow info from module metadata
+                if 'agent_info' in module.metadata:
+                    agent_info_dict.update(module.metadata['agent_info'])
+                if 'workflow_info' in module.metadata:
+                    workflow_info_dict.update(module.metadata['workflow_info'])
+                
+                # Also check elements for any missed agents/workflows
+                for elem in elements:
+                    if elem.type == CodeElementType.AGENT and elem.id not in agent_info_dict:
+                        agent_info_dict[elem.id] = AgentInfo(
+                            agent_type=elem.metadata.get("agent_type", "LLM"),
+                            tools=[],
+                            capabilities=[]
+                        )
+                    elif elem.type == CodeElementType.WORKFLOW and elem.id not in workflow_info_dict:
+                        workflow_info_dict[elem.id] = WorkflowInfo(
+                            workflow_type=elem.metadata.get("workflow_type", "sequential"),
+                            steps=[],
+                            agents=[]
+                        )
+                    elif elem.type == CodeElementType.DATABASE_TABLE:
+                        # Group tables by schema
+                        db_lang = DatabaseLanguage(elem.metadata.get("database_language", "unknown"))
+                        database_languages_found.add(db_lang)
+                        schema_name = elem.metadata.get("schema_name", "default")
+                        if schema_name not in db_schema_map:
+                            db_schema_map[schema_name] = DatabaseSchema(
+                                name=schema_name,
+                                database_language=db_lang,
+                                tables=[],
+                                orm_framework=elem.metadata.get("orm_framework")
+                            )
+                        # Create table entry
+                        table = DatabaseTable(
+                            name=elem.name,
+                            columns=[]  # Would need to parse columns from code
+                        )
+                        db_schema_map[schema_name].tables.append(table)
                 
                 # Count lines
                 try:
@@ -390,6 +497,8 @@ class CodeParser:
                 logger.error(f"Error parsing {file_path}: {e}")
                 continue
         
+        database_schemas_list = list(db_schema_map.values())
+        
         # Build metadata
         repo_name = Path(repo_path).name
         metadata = CodebaseMetadata(
@@ -401,6 +510,7 @@ class CodeParser:
             total_files=len(all_modules),
             total_lines=total_lines,
             languages=list(languages_found),
+            database_languages=list(database_languages_found) if database_languages_found else [],
             main_entry_points=self._find_main_entry_points(all_modules),
             test_files=[m.file_path for m in all_modules if 'test' in m.file_path.lower()],
             config_files=[m.file_path for m in all_modules if any(
@@ -431,7 +541,10 @@ class CodeParser:
             modules=all_modules,
             elements=all_elements,
             dependencies=all_dependencies,
-            class_info=class_info
+            class_info=class_info,
+            agent_info=agent_info_dict,
+            workflow_info=workflow_info_dict,
+            database_schemas=database_schemas_list
         )
         
         # Build indexes
@@ -439,6 +552,216 @@ class CodeParser:
         
         logger.info(f"Parsing complete: {len(all_elements)} elements, {len(all_dependencies)} dependencies")
         return graph
+    
+    def _is_agent_class(self, node: ast.ClassDef, content: str) -> bool:
+        """Check if a class is an agent."""
+        name_lower = node.name.lower()
+        content_lower = content.lower()
+        
+        # Check name
+        if any(keyword in name_lower for keyword in self.agent_keywords):
+            return True
+        
+        # Check base classes
+        for base in node.bases:
+            base_str = ast.unparse(base) if hasattr(ast, 'unparse') else str(base)
+            if any(agent_base.lower() in base_str.lower() for agent_base in self.agent_base_classes):
+                return True
+        
+        # Check docstring/content
+        docstring = ast.get_docstring(node) or ""
+        if any(keyword in docstring.lower() for keyword in self.agent_keywords):
+            return True
+        
+        return False
+    
+    def _is_workflow_class(self, node: ast.ClassDef, content: str) -> bool:
+        """Check if a class is a workflow."""
+        name_lower = node.name.lower()
+        content_lower = content.lower()
+        
+        # Check name
+        if any(keyword in name_lower for keyword in self.workflow_keywords):
+            return True
+        
+        # Check decorators
+        for decorator in node.decorator_list:
+            decorator_str = ast.unparse(decorator) if hasattr(ast, 'unparse') else str(decorator)
+            if any(wf_decorator.lower() in decorator_str.lower() for wf_decorator in self.workflow_decorators):
+                return True
+        
+        return False
+    
+    def _parse_python_agent(self, node: ast.ClassDef, file_path: Path, 
+                           repo_path: Path, content: str) -> tuple[CodeElement, List[Dependency], AgentInfo]:
+        """Parse a Python agent class."""
+        rel_path = str(file_path.relative_to(repo_path))
+        element_id = f"agent:{rel_path}:{node.name}"
+        
+        docstring = ast.get_docstring(node)
+        lines = content.split('\n')
+        code_snippet = '\n'.join(lines[node.lineno-1:min(node.lineno+20, len(lines))])
+        
+        # Detect agent type
+        agent_type = "LLM"
+        llm_provider = None
+        model_name = None
+        
+        content_lower = content.lower()
+        if 'rag' in content_lower or 'retrieval' in content_lower:
+            agent_type = "RAG"
+        elif 'tool' in content_lower or 'function' in content_lower:
+            agent_type = "Tool-using"
+        
+        # Detect LLM provider
+        for provider in ['openai', 'groq', 'anthropic', 'cohere', 'huggingface']:
+            if provider in content_lower:
+                llm_provider = provider
+                break
+        
+        # Extract tools/capabilities
+        tools = []
+        capabilities = []
+        for child in node.body:
+            if isinstance(child, ast.FunctionDef):
+                if 'tool' in child.name.lower() or 'function' in child.name.lower():
+                    tools.append(f"{element_id}.{child.name}")
+                if any(cap in child.name.lower() for cap in ['process', 'analyze', 'generate', 'query']):
+                    capabilities.append(child.name)
+        
+        element = CodeElement(
+            id=element_id,
+            name=node.name,
+            type=CodeElementType.AGENT,
+            file_path=rel_path,
+            line_start=node.lineno,
+            line_end=node.end_lineno or node.lineno,
+            language=Language.PYTHON,
+            docstring=docstring,
+            code_snippet=code_snippet[:500],
+            metadata={"agent_type": agent_type}
+        )
+        
+        dependencies = []
+        agent_info = AgentInfo(
+            agent_type=agent_type,
+            tools=tools,
+            capabilities=capabilities,
+            llm_provider=llm_provider,
+            model_name=model_name
+        )
+        
+        return element, dependencies, agent_info
+    
+    def _parse_python_workflow(self, node: ast.ClassDef, file_path: Path,
+                              repo_path: Path, content: str) -> tuple[CodeElement, List[Dependency], WorkflowInfo]:
+        """Parse a Python workflow class."""
+        rel_path = str(file_path.relative_to(repo_path))
+        element_id = f"workflow:{rel_path}:{node.name}"
+        
+        docstring = ast.get_docstring(node)
+        lines = content.split('\n')
+        code_snippet = '\n'.join(lines[node.lineno-1:min(node.lineno+20, len(lines))])
+        
+        # Detect workflow type
+        workflow_type = "sequential"
+        content_lower = content.lower()
+        if 'parallel' in content_lower or 'async' in content_lower:
+            workflow_type = "parallel"
+        elif 'conditional' in content_lower or 'if' in content_lower:
+            workflow_type = "conditional"
+        
+        # Extract steps
+        steps = []
+        agents = []
+        for child in node.body:
+            if isinstance(child, ast.FunctionDef):
+                steps.append(f"{element_id}.{child.name}")
+                # Check if step uses agents
+                child_content = ast.unparse(child) if hasattr(ast, 'unparse') else str(child)
+                if 'agent' in child_content.lower():
+                    agents.append(f"{element_id}.{child.name}")
+        
+        element = CodeElement(
+            id=element_id,
+            name=node.name,
+            type=CodeElementType.WORKFLOW,
+            file_path=rel_path,
+            line_start=node.lineno,
+            line_end=node.end_lineno or node.lineno,
+            language=Language.PYTHON,
+            docstring=docstring,
+            code_snippet=code_snippet[:500],
+            metadata={"workflow_type": workflow_type}
+        )
+        
+        dependencies = []
+        workflow_info = WorkflowInfo(
+            workflow_type=workflow_type,
+            steps=steps,
+            agents=agents
+        )
+        
+        return element, dependencies, workflow_info
+    
+    def _detect_database_models(self, tree: ast.AST, file_path: Path,
+                                repo_path: Path, content: str) -> tuple[List[CodeElement], List[Dependency]]:
+        """Detect database models/schemas in Python file."""
+        elements = []
+        dependencies = []
+        rel_path = str(file_path.relative_to(repo_path))
+        content_lower = content.lower()
+        
+        # Detect ORM framework
+        orm_framework = None
+        db_language = DatabaseLanguage.UNKNOWN
+        
+        for orm_name, patterns in self.orm_patterns.items():
+            if any(pattern.lower() in content_lower for pattern in patterns):
+                orm_framework = orm_name
+                if orm_name == 'mongodb':
+                    db_language = DatabaseLanguage.MONGODB
+                elif orm_name == 'redis':
+                    db_language = DatabaseLanguage.REDIS
+                else:
+                    db_language = DatabaseLanguage.SQL
+                break
+        
+        if not orm_framework:
+            return elements, dependencies
+        
+        # Find model classes
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                # Check if it's a database model
+                is_model = False
+                for base in node.bases:
+                    base_str = ast.unparse(base) if hasattr(ast, 'unparse') else str(base)
+                    if any(pattern.lower() in base_str.lower() for pattern in self.orm_patterns.get(orm_framework, [])):
+                        is_model = True
+                        break
+                
+                if is_model:
+                    element_id = f"database_table:{rel_path}:{node.name}"
+                    docstring = ast.get_docstring(node)
+                    lines = content.split('\n')
+                    code_snippet = '\n'.join(lines[node.lineno-1:min(node.lineno+20, len(lines))])
+                    
+                    element = CodeElement(
+                        id=element_id,
+                        name=node.name,
+                        type=CodeElementType.DATABASE_TABLE,
+                        file_path=rel_path,
+                        line_start=node.lineno,
+                        line_end=node.end_lineno or node.lineno,
+                        language=Language.PYTHON,
+                        docstring=docstring,
+                        code_snippet=code_snippet[:500],
+                        metadata={"orm_framework": orm_framework, "database_language": db_language.value}
+                    )
+                    elements.append(element)
+        
+        return elements, dependencies
     
     def _find_main_entry_points(self, modules: List[Module]) -> List[str]:
         """Find main entry point files."""
