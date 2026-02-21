@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 
-from app.schemas.architecture_schema import ArchitectureRequest, ArchitectureBlueprint
+from app.schemas.architecture_schema import ArchitectureRequest, ArchitectureBlueprint, ArchitectureModifyRequest
 from app.agents.architecture_agent import ArchitectureAgent
 from app.core.db import get_graph, get_parsed_data
 from app.core.llm import LLMService
@@ -93,6 +93,30 @@ async def generate_architecture(request: ArchitectureRequest) -> ArchitectureBlu
             status_code=500,
             detail=f"Error generating architecture blueprint: {str(e)}"
         )
+
+
+@router.post("/modify", response_model=ArchitectureBlueprint)
+async def modify_architecture(request: ArchitectureModifyRequest) -> ArchitectureBlueprint:
+    """Modify an existing blueprint based on user feedback."""
+    if not llm_service:
+        raise HTTPException(status_code=503, detail="LLM service not available")
+    try:
+        agent = ArchitectureAgent(llm_service)
+        prompt = agent.build_modify_prompt(
+            request.current_blueprint,
+            request.modification_request
+        )
+        json_response = agent.call_llm(prompt)
+        blueprint = agent.validate_blueprint_schema(json_response)
+        return blueprint
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error modifying architecture: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/health")

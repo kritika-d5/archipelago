@@ -208,6 +208,26 @@ IMPORTANT:
 """
         return prompt
     
+    def build_modify_prompt(self, current_blueprint: Dict[str, Any], modification_request: str) -> str:
+        """Build prompt for modifying an existing blueprint."""
+        import json
+        blueprint_json = json.dumps(current_blueprint, indent=2) if isinstance(current_blueprint, dict) else str(current_blueprint)
+        prompt = f"""You are an expert software architect. The user has an existing architecture blueprint and wants to modify it.
+
+CURRENT BLUEPRINT:
+{blueprint_json}
+
+USER'S MODIFICATION REQUEST:
+{modification_request}
+
+Apply the requested modifications to the blueprint. Return the COMPLETE modified blueprint in STRICT JSON format matching the same structure as the current blueprint. Ensure:
+- All fields from the original blueprint are preserved unless explicitly changed
+- mermaid_diagram is updated if architecture changes
+- confidence_score is between 0.0 and 1.0
+- Return ONLY valid JSON, no markdown, no explanations
+"""
+        return prompt
+
     def build_brownfield_prompt(self, system_summary: str, user_intent: Optional[str] = None) -> str:
         """
         Build prompt for brownfield architecture optimization.

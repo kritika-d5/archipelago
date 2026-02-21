@@ -17,18 +17,8 @@ function Dashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connect = params.get('connect');
-    if (connect) {
-      // Provide helpful prefill/hint depending on source
-      if (connect === 'github') {
-        setRepoUrl('https://github.com/');
-        setConnectHint('Paste your GitHub repository or organization URL above and click Parse to ingest sources.');
-      } else if (connect === 'docs') {
-        setConnectHint('To connect documentation, provide a documentation source or follow the docs connector instructions.');
-      } else if (connect === 'slack') {
-        setConnectHint('To connect Slack, follow the Slack connector instructions in settings.');
-      } else if (connect === 'cicd') {
-        setConnectHint('To connect CI/CD, provide the CI/CD integration details in settings.');
-      }
+    if (connect === 'github') {
+      setConnectHint('Paste your GitHub repository or organization URL below and click Parse. Or use Connect to GitHub from the home page for OAuth.');
     }
   }, []);
 

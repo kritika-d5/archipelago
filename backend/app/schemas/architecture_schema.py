@@ -51,6 +51,12 @@ class DataArchitecture(BaseModel):
     storage_strategy: Optional[str] = Field(None, description="Storage strategy")
 
 
+class ArchitectureModifyRequest(BaseModel):
+    """Request model for modifying an existing blueprint."""
+    current_blueprint: Dict[str, Any] = Field(..., description="Current blueprint to modify")
+    modification_request: str = Field(..., description="User's modification request")
+
+
 class ArchitectureBlueprint(BaseModel):
     """Architecture blueprint response model."""
     mode: str = Field(..., description="Mode: greenfield or brownfield")

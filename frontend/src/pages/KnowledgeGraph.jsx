@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import cytoscape from 'cytoscape';
 import coseBilkent from 'cytoscape-cose-bilkent';
 import ReactMarkdown from 'react-markdown';
@@ -8,21 +9,36 @@ import api from '../services/api';
 cytoscape.use(coseBilkent);
 
 function KnowledgeGraph() {
+  const location = useLocation();
   const [repoKey, setRepoKey] = useState('');
   const [parsedGraphs, setParsedGraphs] = useState([]);
   const [graphData, setGraphData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [query, setQuery] = useState('');
-  const [answer, setAnswer] = useState(null);
-  const [whatIfScenario, setWhatIfScenario] = useState('');
-  const [whatIfResult, setWhatIfResult] = useState(null);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
   const [showJson, setShowJson] = useState(false);
+
+  const EXAMPLE_QUESTIONS = [
+    'How does authentication work in this codebase?',
+    'What if I change the UserService API to accept JSON?',
+    'Where are the main API endpoints defined?',
+    'What would happen if I remove this database dependency?',
+    'Explain the flow from login to checkout.',
+    'What’s the impact of renaming this function?',
+  ];
   const [jsonData, setJsonData] = useState(null);
   const [subgraphElement, setSubgraphElement] = useState('');
   const [subgraphContext, setSubgraphContext] = useState(null);
   const [projectExplanation, setProjectExplanation] = useState(null);
   const [loadingExplanation, setLoadingExplanation] = useState(false);
+  const [docContent, setDocContent] = useState('');
+  const [docDiffResult, setDocDiffResult] = useState(null);
+  const [loadingDocDiff, setLoadingDocDiff] = useState(false);
+  const [notionPageId, setNotionPageId] = useState(null);
+  const [appliedSuggestions, setAppliedSuggestions] = useState(new Set());
+  const [rejectedSuggestions, setRejectedSuggestions] = useState(new Set());
+  const [applyingSuggestion, setApplyingSuggestion] = useState(null);
   const cyRef = useRef(null);
   const containerRef = useRef(null);
 
@@ -30,6 +46,15 @@ function KnowledgeGraph() {
     loadParsedGraphs();
   }, []);
 
+  useEffect(() => {
+    const state = location.state || {};
+    if (state.notionContent) {
+      setDocContent(state.notionContent);
+      setNotionPageId(state.notionPageId || null);
+    }
+  }, [location.state]);
+
+  const docDiffRef = useRef(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const repo = params.get('repo');
@@ -41,6 +66,31 @@ function KnowledgeGraph() {
       loadGraph(parsedGraphs[0].key);
     }
   }, [parsedGraphs]);
+
+  useEffect(() => {
+    if (docContent && docDiffRef.current && docDiffResult) {
+      docDiffRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [docContent, docDiffResult]);
+
+  const hasAutoRunDocDiff = useRef(false);
+  useEffect(() => {
+    if (!hasAutoRunDocDiff.current && repoKey && docContent && !loadingDocDiff) {
+      hasAutoRunDocDiff.current = true;
+      (async () => {
+        setLoadingDocDiff(true);
+        setDocDiffResult(null);
+        try {
+          const resp = await api.post(`/api/query/doc-diff?repo_key=${encodeURIComponent(repoKey)}`, { documentation: docContent });
+          setDocDiffResult(resp.data);
+        } catch (err) {
+          setError(err.response?.data?.detail || 'Failed to compare');
+        } finally {
+          setLoadingDocDiff(false);
+        }
+      })();
+    }
+  }, [repoKey, docContent]);
 
   const loadParsedGraphs = async () => {
     try {
@@ -434,42 +484,83 @@ function KnowledgeGraph() {
     cyRef.current.boxSelectionEnabled(true);
   };
 
-  const handleQuery = async () => {
-    if (!repoKey || !query.trim()) return;
+  const isWhatIfPrompt = (text) => /what if|what would happen|suppose|impact of|effect of|if i change|if we remove/i.test((text || '').trim());
 
+  const handleChatSubmit = async (textOverride) => {
+    const text = (textOverride ?? chatInput).trim();
+    if (!repoKey || !text) return;
+
+    const userMsg = { id: Date.now(), role: 'user', text };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setChatInput('');
     setLoading(true);
-    setAnswer(null);
+    setError(null);
+
+    const isWhatIf = isWhatIfPrompt(text);
     try {
-      const response = await api.post(`/api/query/ask?repo_key=${encodeURIComponent(repoKey)}`, {
-        query: query,
-        include_code: true,
-        max_context_elements: 10
-      });
-      setAnswer(response.data);
+      if (isWhatIf) {
+        const response = await api.post(`/api/query/what-if?repo_key=${encodeURIComponent(repoKey)}`, {
+          scenario: text,
+          include_impact_chain: true,
+          max_depth: 5
+        });
+        const data = response.data;
+        const content = [data.analysis, data.recommendations?.length ? '\n**Recommendations:**\n' + data.recommendations.map((r) => `- ${r}`).join('\n') : ''].filter(Boolean).join('\n');
+        setChatMessages((prev) => [...prev, { id: Date.now() + 1, role: 'assistant', text: content, type: 'whatif', data: response.data }]);
+      } else {
+        const response = await api.post(`/api/query/ask?repo_key=${encodeURIComponent(repoKey)}`, {
+          query: text,
+          include_code: true,
+          max_context_elements: 10
+        });
+        const data = response.data;
+        setChatMessages((prev) => [...prev, { id: Date.now() + 1, role: 'assistant', text: data.answer, type: 'answer', data }]);
+      }
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to process query');
+      setError(err.response?.data?.detail || err.message || 'Something went wrong');
+      setChatMessages((prev) => [...prev, { id: Date.now() + 1, role: 'assistant', text: 'Sorry, I couldn’t process that. Try rephrasing or check the repo is loaded.', type: 'error' }]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleWhatIf = async () => {
-    if (!repoKey || !whatIfScenario.trim()) return;
-
-    setLoading(true);
-    setWhatIfResult(null);
+  const handleDocDiff = async () => {
+    if (!repoKey || !docContent.trim()) return;
+    setLoadingDocDiff(true);
+    setDocDiffResult(null);
+    setAppliedSuggestions(new Set());
+    setRejectedSuggestions(new Set());
+    hasAutoRunDocDiff.current = true;
     try {
-      const response = await api.post(`/api/query/what-if?repo_key=${encodeURIComponent(repoKey)}`, {
-        scenario: whatIfScenario,
-        include_impact_chain: true,
-        max_depth: 5
+      const response = await api.post(`/api/query/doc-diff?repo_key=${encodeURIComponent(repoKey)}`, {
+        documentation: docContent.trim()
       });
-      setWhatIfResult(response.data);
+      setDocDiffResult(response.data);
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to perform analysis');
+      setError(err.response?.data?.detail || 'Failed to compare documentation');
     } finally {
-      setLoading(false);
+      setLoadingDocDiff(false);
     }
+  };
+
+  const handleKeepSuggestion = async (suggestion) => {
+    if (!notionPageId) return;
+    setApplyingSuggestion(suggestion.id);
+    try {
+      await api.post('/api/integrations/notion/update', {
+        page_id: notionPageId,
+        content: suggestion.suggested || suggestion.description
+      });
+      setAppliedSuggestions((prev) => new Set([...prev, suggestion.id]));
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to update Notion');
+    } finally {
+      setApplyingSuggestion(null);
+    }
+  };
+
+  const handleRejectSuggestion = (suggestion) => {
+    setRejectedSuggestions((prev) => new Set([...prev, suggestion.id]));
   };
 
   const handleSubgraphExtraction = async () => {
@@ -487,21 +578,22 @@ function KnowledgeGraph() {
     }
   };
 
+  const notionPageUrl = notionPageId ? `https://www.notion.so/${notionPageId.replace(/-/g, '')}` : null;
+
   return (
-    <div>
-      <div className="card">
-        <h2 className="card-title">Knowledge Graph</h2>
-        
-        <div className="form-group">
-          <label>Select Repository</label>
-          <div style={{ display: 'flex', gap: '1rem' }}>
+    <div className="graph-page">
+      <div className="graph-page-header">
+        <h1 className="graph-page-title">Knowledge Graph</h1>
+        <div className="graph-page-controls">
+          <label className="graph-page-label">Repository</label>
+          <div className="graph-page-select-row">
             <select
               value={repoKey}
               onChange={(e) => {
                 setRepoKey(e.target.value);
                 loadGraph(e.target.value);
               }}
-              style={{ flex: 1, padding: '0.75rem', border: '2px solid #e0e0e0', borderRadius: '8px' }}
+              className="repo-select"
             >
               {parsedGraphs.length === 0 ? (
                 <option value="">No repositories parsed yet</option>
@@ -515,379 +607,188 @@ function KnowledgeGraph() {
             </select>
             {repoKey && (
               <>
-                <button onClick={() => loadGraph(repoKey)} className="btn btn-primary">
-                  Refresh
-                </button>
-                <button onClick={() => loadJson(repoKey)} className="btn btn-secondary">
-                  View JSON
-                </button>
+                <button onClick={() => loadGraph(repoKey)} className="btn btn-secondary btn-sm">Refresh</button>
+                <button onClick={() => loadJson(repoKey)} className="btn btn-ghost btn-sm">JSON</button>
               </>
             )}
           </div>
         </div>
-
-        {error && <div className="error">{error}</div>}
-
-        {loading && !graphData && <div className="loading">Loading graph...</div>}
-
-        {graphData && (
-          <>
-            <div className="info-grid">
-              <div className="info-card">
-                <div className="info-card-label">Nodes</div>
-                <div className="info-card-value">{graphData.metadata?.total_nodes || 0}</div>
-              </div>
-              <div className="info-card">
-                <div className="info-card-label">Edges</div>
-                <div className="info-card-value">{graphData.metadata?.total_edges || 0}</div>
-              </div>
-              <div className="info-card">
-                <div className="info-card-label">Repository</div>
-                <div className="info-card-value">{graphData.metadata?.repository_name || 'N/A'}</div>
-              </div>
-            </div>
-
-            <div ref={containerRef} className="graph-container" />
-          </>
-        )}
       </div>
 
-        {graphData && (
-        <div className="card" style={{ marginTop: '2rem' }}>
-          <h2 className="card-title">Database Schema</h2>
-          {loadingExplanation && (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
-              Generating project explanation...
+      {error && <div className="error">{error}</div>}
+      {loading && !graphData && <div className="loading">Loading graph...</div>}
+
+      <div className="graph-page-bento">
+        <div className="graph-page-left">
+          <div className="card bento-graph-card">
+            {graphData && (
+              <>
+                <div className="info-grid">
+                  <div className="info-card">
+                    <div className="info-card-label">Nodes</div>
+                    <div className="info-card-value">{graphData.metadata?.total_nodes || 0}</div>
+                  </div>
+                  <div className="info-card">
+                    <div className="info-card-label">Edges</div>
+                    <div className="info-card-value">{graphData.metadata?.total_edges || 0}</div>
+                  </div>
+                  <div className="info-card">
+                    <div className="info-card-label">Repository</div>
+                    <div className="info-card-value">{graphData.metadata?.repository_name || 'N/A'}</div>
+                  </div>
+                </div>
+                <div ref={containerRef} className="graph-container" />
+              </>
+            )}
+          </div>
+          {graphData && (loadingExplanation ? (
+            <div className="card bento-explanation-card"><div className="explanation-loading">Generating schema...</div></div>
+          ) : projectExplanation && (
+            <div className="card bento-explanation-card">
+              <h2 className="card-title">Database Schema</h2>
+              <div className="explanation-box">
+                {projectExplanation.explanation.split('\n').slice(0, 15).map((line, idx) => {
+                  if (line.startsWith('#') || line.match(/^\d+\.\s+\*\*/)) {
+                    return <h3 key={idx} className="explanation-heading">{line.replace(/^#+\s*/, '').replace(/\*\*/g, '')}</h3>;
+                  }
+                  if (line.includes('**')) {
+                    const parts = line.split(/(\*\*.*?\*\*)/g);
+                    return (
+                      <p key={idx} className="explanation-para">
+                        {parts.map((part, pIdx) => part.startsWith('**') && part.endsWith('**') ? <strong key={pIdx}>{part.slice(2, -2)}</strong> : part)}
+                      </p>
+                    );
+                  }
+                  return <p key={idx} className="explanation-para">{line}</p>;
+                })}
+              </div>
             </div>
-          )}
-          {projectExplanation && !loadingExplanation && (
-            <div style={{ 
-              background: '#f8f9fa', 
-              padding: '1.5rem', 
-              borderRadius: '8px',
-              lineHeight: '1.8',
-              whiteSpace: 'pre-wrap',
-              fontFamily: 'system-ui, -apple-system, sans-serif'
-            }}>
-              {projectExplanation.explanation.split('\n').map((line, idx) => {
-                // Format headings
-                if (line.startsWith('#') || line.match(/^\d+\.\s+\*\*/)) {
-                  return <h3 key={idx} style={{ marginTop: '1rem', marginBottom: '0.5rem', color: '#333' }}>{line.replace(/^#+\s*/, '').replace(/\*\*/g, '')}</h3>;
-                }
-                // Format bold text
-                if (line.includes('**')) {
-                  const parts = line.split(/(\*\*.*?\*\*)/g);
-                  return (
-                    <p key={idx} style={{ marginBottom: '0.5rem' }}>
-                      {parts.map((part, pIdx) => 
-                        part.startsWith('**') && part.endsWith('**') ? 
-                          <strong key={pIdx}>{part.slice(2, -2)}</strong> : part
-                      )}
-                    </p>
-                  );
-                }
-                return <p key={idx} style={{ marginBottom: '0.5rem' }}>{line}</p>;
-              })}
-            </div>
-          )}
+          ))}
         </div>
-      )}
+
+        <aside className="graph-page-right">
+          {graphData && (
+            <>
+              <div ref={docDiffRef} className="bento-card bento-doc">
+                <h2 className="bento-card-title">Documentation vs Code</h2>
+                <p className="query-desc">{docContent ? 'Comparing your Notion page with the codebase.' : 'Paste docs to compare and get suggested edits.'}</p>
+                <textarea value={docContent} onChange={(e) => setDocContent(e.target.value)} placeholder="Paste architecture docs or runbooks..." rows={3} className="doc-textarea" />
+                <button onClick={handleDocDiff} className="btn btn-primary btn-sm" disabled={loadingDocDiff || !docContent.trim()}>{loadingDocDiff ? 'Analyzing...' : 'Compare'}</button>
+                {notionPageId && notionPageUrl && (
+                  <p className="notion-where-hint">When you click &quot;Keep & update Notion&quot;, the suggestion is <strong>added as a new paragraph at the bottom</strong> of this page. <a href={notionPageUrl} target="_blank" rel="noopener noreferrer">Open page in Notion →</a></p>
+                )}
+                {docDiffResult && (
+                  <div className="answer-box doc-diff-result">
+                    <h3>{docDiffResult.has_differences ? 'Suggested edits' : 'Aligned'}</h3>
+                    <div className="answer-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{docDiffResult.suggestions || 'No differences.'}</ReactMarkdown></div>
+                    {docDiffResult.structured && docDiffResult.structured.length > 0 && (
+                      <div className="suggestions-list">
+                        {docDiffResult.structured.filter((s) => !rejectedSuggestions.has(s.id)).map((s) => (
+                          <div key={s.id} className={`suggestion-card ${appliedSuggestions.has(s.id) ? 'applied' : ''}`}>
+                            <div className="suggestion-desc">{s.description}</div>
+                            {s.suggested && <div className="suggestion-text">{s.suggested}</div>}
+                            {!appliedSuggestions.has(s.id) && (
+                              <div className="suggestion-actions">
+                                {notionPageId && (
+                                  <button className="btn btn-primary btn-sm" onClick={() => handleKeepSuggestion(s)} disabled={applyingSuggestion === s.id}>
+                                    {applyingSuggestion === s.id ? 'Updating...' : 'Keep & add to Notion'}
+                                  </button>
+                                )}
+                                <button className="btn btn-ghost btn-sm" onClick={() => handleRejectSuggestion(s)}>Reject</button>
+                              </div>
+                            )}
+                            {appliedSuggestions.has(s.id) && <span className="suggestion-applied">✓ Added to bottom of Notion page</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="bento-card bento-chatbot">
+                <h2 className="bento-card-title">Ask anything</h2>
+                <div className="chat-examples">
+                  <span className="chat-examples-label">Example questions:</span>
+                  <div className="chat-examples-list">
+                    {EXAMPLE_QUESTIONS.map((q, i) => (
+                      <button key={i} type="button" className="chat-example-chip" onClick={() => handleChatSubmit(q)} disabled={loading}>
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="chat-messages">
+                  {chatMessages.map((msg) =>
+                    msg.role === 'user' ? (
+                      <div key={msg.id} className="chat-bubble user">{msg.text}</div>
+                    ) : (
+                      <div key={msg.id} className={`chat-bubble assistant ${msg.type === 'error' ? 'chat-bubble-error' : ''}`}>
+                        {msg.type === 'whatif' && msg.data?.risk_level && (
+                          <span className={`risk-badge risk-${msg.data.risk_level}`}>{msg.data.risk_level}</span>
+                        )}
+                        <div className="answer-content">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                            code: ({node, inline, className, children, ...props}) => (!inline && /language-(\w+)/.exec(className || '')) ? <pre className="answer-code-block"><code className={className} {...props}>{children}</code></pre> : <code className="answer-inline-code" {...props}>{children}</code>,
+                            p: ({node, ...props}) => <p style={{ marginBottom: '0.5rem', lineHeight: '1.5' }} {...props} />,
+                            ul: ({node, ...props}) => <ul style={{ marginLeft: '1rem', marginBottom: '0.5rem' }} {...props} />,
+                            li: ({node, ...props}) => <li style={{ marginBottom: '0.25rem' }} {...props} />,
+                            strong: ({node, ...props}) => <strong {...props} />,
+                          }}>
+                            {msg.text}
+                          </ReactMarkdown>
+                          {msg.type === 'answer' && msg.data?.relevant_elements?.length > 0 && (
+                            <div className="relevant-elements"><strong>Relevant:</strong> {msg.data.relevant_elements.slice(0, 5).join(', ')}</div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+                <div className="chat-input-row">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Ask anything..."
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleChatSubmit()}
+                    className="chat-input"
+                  />
+                  <button onClick={() => handleChatSubmit()} className="btn btn-primary" disabled={loading}>
+                    {loading ? '...' : 'Ask'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="bento-card bento-subgraph">
+                <h2 className="bento-card-title">Impact / Subgraph</h2>
+                <input type="text" value={subgraphElement} onChange={(e) => setSubgraphElement(e.target.value)} placeholder="e.g. UserService" onKeyPress={(e) => e.key === 'Enter' && handleSubgraphExtraction()} className="chat-input" />
+                <button onClick={handleSubgraphExtraction} className="btn btn-primary btn-sm" disabled={loading}>Extract</button>
+                {subgraphContext && (
+                  <div className="answer-box">
+                    <h3>{subgraphContext.target_service || subgraphContext.target_element_id}</h3>
+                    {subgraphContext.impact_summary && <p className="impact-summary">{subgraphContext.impact_summary}</p>}
+                    <ul className="impact-list">
+                      {(subgraphContext.direct_dependents || []).slice(0, 5).map((d, i) => <li key={i}>{d}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </aside>
+      </div>
 
       {showJson && jsonData && (
-        <div className="card" style={{ marginTop: '2rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h2 className="card-title">Parsed JSON Data</h2>
-            <button onClick={() => setShowJson(false)} className="btn btn-secondary">Close</button>
+        <div className="modal-overlay" onClick={() => setShowJson(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="card-title">Parsed JSON</h2>
+              <button onClick={() => setShowJson(false)} className="btn btn-ghost btn-sm">Close</button>
+            </div>
+            <pre className="schema-pre" style={{ maxHeight: '70vh', fontSize: '12px' }}>{JSON.stringify(jsonData, null, 2)}</pre>
           </div>
-          <pre style={{ 
-            background: '#f8f9fa', 
-            padding: '1.5rem', 
-            borderRadius: '8px', 
-            overflow: 'auto', 
-            maxHeight: '600px',
-            fontSize: '12px',
-            lineHeight: '1.5'
-          }}>
-            {JSON.stringify(jsonData, null, 2)}
-          </pre>
         </div>
-      )}
-
-      {graphData && (
-        <>
-          <div className="card query-section">
-            <h2 className="card-title">Ask Questions</h2>
-            <div className="query-input">
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask a question about the codebase..."
-                onKeyPress={(e) => e.key === 'Enter' && handleQuery()}
-              />
-              <button onClick={handleQuery} className="btn btn-primary" disabled={loading}>
-                Ask
-              </button>
-            </div>
-            {answer && (
-              <div className="answer-box">
-                <h3>Answer</h3>
-                <div className="answer-content">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code: ({node, inline, className, children, ...props}) => {
-                        const match = /language-(\w+)/.exec(className || '');
-                        return !inline && match ? (
-                          <pre style={{
-                            background: '#f4f4f4',
-                            padding: '1rem',
-                            borderRadius: '4px',
-                            overflow: 'auto',
-                            border: '1px solid #ddd'
-                          }}>
-                            <code className={className} {...props}>
-                              {children}
-                            </code>
-                          </pre>
-                        ) : (
-                          <code className={className} style={{
-                            background: '#f4f4f4',
-                            padding: '0.2em 0.4em',
-                            borderRadius: '3px',
-                            fontSize: '0.9em'
-                          }} {...props}>
-                            {children}
-                          </code>
-                        );
-                      },
-                      p: ({node, ...props}) => <p style={{ marginBottom: '1rem', lineHeight: '1.6' }} {...props} />,
-                      h1: ({node, ...props}) => <h1 style={{ fontSize: '1.5rem', marginTop: '1.5rem', marginBottom: '1rem' }} {...props} />,
-                      h2: ({node, ...props}) => <h2 style={{ fontSize: '1.3rem', marginTop: '1.3rem', marginBottom: '0.8rem' }} {...props} />,
-                      h3: ({node, ...props}) => <h3 style={{ fontSize: '1.1rem', marginTop: '1.1rem', marginBottom: '0.6rem' }} {...props} />,
-                      ul: ({node, ...props}) => <ul style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
-                      ol: ({node, ...props}) => <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
-                      li: ({node, ...props}) => <li style={{ marginBottom: '0.5rem' }} {...props} />,
-                      blockquote: ({node, ...props}) => (
-                        <blockquote style={{
-                          borderLeft: '4px solid #ddd',
-                          paddingLeft: '1rem',
-                          marginLeft: '0',
-                          marginBottom: '1rem',
-                          color: '#666',
-                          fontStyle: 'italic'
-                        }} {...props} />
-                      ),
-                      strong: ({node, ...props}) => <strong style={{ fontWeight: 'bold' }} {...props} />,
-                      em: ({node, ...props}) => <em style={{ fontStyle: 'italic' }} {...props} />,
-                    }}
-                  >
-                    {answer.answer}
-                  </ReactMarkdown>
-                </div>
-                {answer.relevant_elements && answer.relevant_elements.length > 0 && (
-                  <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #ddd' }}>
-                    <strong>Relevant Elements:</strong>
-                    <ul style={{ marginTop: '0.5rem' }}>
-                      {answer.relevant_elements.slice(0, 5).map((elem, idx) => (
-                        <li key={idx} style={{ marginBottom: '0.3rem' }}>{elem}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="card query-section">
-            <h2 className="card-title">Subgraph Extraction</h2>
-            <p style={{ color: '#666', marginBottom: '1rem' }}>
-              Enter an element name (e.g., "UserService") to see what would be affected if you modify it.
-            </p>
-            <div className="query-input">
-              <input
-                type="text"
-                value={subgraphElement}
-                onChange={(e) => setSubgraphElement(e.target.value)}
-                placeholder="Enter element name (e.g., UserService, OrderService)"
-                onKeyPress={(e) => e.key === 'Enter' && handleSubgraphExtraction()}
-              />
-              <button onClick={handleSubgraphExtraction} className="btn btn-primary" disabled={loading}>
-                Extract Subgraph
-              </button>
-            </div>
-            {subgraphContext && (
-              <div className="answer-box" style={{ marginTop: '1rem' }}>
-                <h3>Impact Context: {subgraphContext.target_service || subgraphContext.target_element_id}</h3>
-                {subgraphContext.impact_summary && (
-                  <div style={{ 
-                    background: '#f8f9fa', 
-                    padding: '1rem', 
-                    borderRadius: '8px', 
-                    marginBottom: '1rem',
-                    whiteSpace: 'pre-line'
-                  }}>
-                    {subgraphContext.impact_summary}
-                  </div>
-                )}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-                  {subgraphContext.direct_dependents && subgraphContext.direct_dependents.length > 0 && (
-                    <div>
-                      <strong>Direct Dependents ({subgraphContext.direct_dependents.length}):</strong>
-                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
-                        {subgraphContext.direct_dependents.slice(0, 10).map((dep, idx) => (
-                          <li key={idx}>{dep}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {subgraphContext.affected_apis && subgraphContext.affected_apis.length > 0 && (
-                    <div>
-                      <strong>Affected APIs ({subgraphContext.affected_apis.length}):</strong>
-                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
-                        {subgraphContext.affected_apis.slice(0, 10).map((api, idx) => (
-                          <li key={idx}>{api}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {subgraphContext.database_tables && subgraphContext.database_tables.length > 0 && (
-                    <div>
-                      <strong>Database Tables ({subgraphContext.database_tables.length}):</strong>
-                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
-                        {subgraphContext.database_tables.slice(0, 10).map((table, idx) => (
-                          <li key={idx}>{table}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {subgraphContext.agents_involved && subgraphContext.agents_involved.length > 0 && (
-                    <div>
-                      <strong>Agents Involved ({subgraphContext.agents_involved.length}):</strong>
-                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
-                        {subgraphContext.agents_involved.slice(0, 10).map((agent, idx) => (
-                          <li key={idx}>{agent}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {subgraphContext.workflows_involved && subgraphContext.workflows_involved.length > 0 && (
-                    <div>
-                      <strong>Workflows Involved ({subgraphContext.workflows_involved.length}):</strong>
-                      <ul style={{ fontSize: '0.9rem', maxHeight: '150px', overflowY: 'auto' }}>
-                        {subgraphContext.workflows_involved.slice(0, 10).map((workflow, idx) => (
-                          <li key={idx}>{workflow}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="card query-section">
-            <h2 className="card-title">What-If Analysis</h2>
-            <div className="form-group">
-              <label>Scenario</label>
-              <textarea
-                value={whatIfScenario}
-                onChange={(e) => setWhatIfScenario(e.target.value)}
-                placeholder="What if I change this function to accept a different parameter type?"
-                rows={4}
-              />
-            </div>
-            <button onClick={handleWhatIf} className="btn btn-primary" disabled={loading}>
-              Analyze Impact
-            </button>
-            {whatIfResult && (
-              <div className="answer-box" style={{ marginTop: '1rem' }}>
-                <h3>
-                  Impact Analysis
-                  <span className={`risk-badge risk-${whatIfResult.risk_level}`}>
-                    {whatIfResult.risk_level.toUpperCase()}
-                  </span>
-                </h3>
-                <div className="answer-content">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code: ({node, inline, className, children, ...props}) => {
-                        const match = /language-(\w+)/.exec(className || '');
-                        return !inline && match ? (
-                          <pre style={{
-                            background: '#f4f4f4',
-                            padding: '1rem',
-                            borderRadius: '4px',
-                            overflow: 'auto',
-                            border: '1px solid #ddd'
-                          }}>
-                            <code className={className} {...props}>
-                              {children}
-                            </code>
-                          </pre>
-                        ) : (
-                          <code className={className} style={{
-                            background: '#f4f4f4',
-                            padding: '0.2em 0.4em',
-                            borderRadius: '3px',
-                            fontSize: '0.9em'
-                          }} {...props}>
-                            {children}
-                          </code>
-                        );
-                      },
-                      p: ({node, ...props}) => <p style={{ marginBottom: '1rem', lineHeight: '1.6' }} {...props} />,
-                      h1: ({node, ...props}) => <h1 style={{ fontSize: '1.5rem', marginTop: '1.5rem', marginBottom: '1rem' }} {...props} />,
-                      h2: ({node, ...props}) => <h2 style={{ fontSize: '1.3rem', marginTop: '1.3rem', marginBottom: '0.8rem' }} {...props} />,
-                      h3: ({node, ...props}) => <h3 style={{ fontSize: '1.1rem', marginTop: '1.1rem', marginBottom: '0.6rem' }} {...props} />,
-                      h4: ({node, ...props}) => <h4 style={{ fontSize: '1rem', marginTop: '1rem', marginBottom: '0.6rem' }} {...props} />,
-                      ul: ({node, ...props}) => <ul style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
-                      ol: ({node, ...props}) => <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
-                      li: ({node, ...props}) => <li style={{ marginBottom: '0.5rem' }} {...props} />,
-                      blockquote: ({node, ...props}) => (
-                        <blockquote style={{
-                          borderLeft: '4px solid #ddd',
-                          paddingLeft: '1rem',
-                          marginLeft: '0',
-                          marginBottom: '1rem',
-                          color: '#666',
-                          fontStyle: 'italic'
-                        }} {...props} />
-                      ),
-                      strong: ({node, ...props}) => <strong style={{ fontWeight: 'bold' }} {...props} />,
-                      em: ({node, ...props}) => <em style={{ fontStyle: 'italic' }} {...props} />,
-                    }}
-                  >
-                    {whatIfResult.analysis}
-                  </ReactMarkdown>
-                </div>
-                {whatIfResult.recommendations && whatIfResult.recommendations.length > 0 && (
-                  <div className="recommendations">
-                    <h4>Recommendations:</h4>
-                    <ul>
-                      {whatIfResult.recommendations.map((rec, idx) => (
-                        <li key={idx}>{rec}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {whatIfResult.impact_chain && whatIfResult.impact_chain.length > 0 && (
-                  <div style={{ marginTop: '1rem' }}>
-                    <strong>Impact Chain ({whatIfResult.impact_chain.length} impacts):</strong>
-                    <ul>
-                      {whatIfResult.impact_chain.slice(0, 10).map((impact, idx) => (
-                        <li key={idx}>
-                          {impact.source} → {impact.target} (depth: {impact.depth})
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </>
       )}
     </div>
   );

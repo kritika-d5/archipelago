@@ -27,3 +27,6 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI")
+
+# Composio (optional - for GitHub/Notion/Slack OAuth)
+COMPOSIO_API_KEY = os.getenv("COMPOSIO_API_KEY") or os.getenv("COMPOSIO_EKEY")
