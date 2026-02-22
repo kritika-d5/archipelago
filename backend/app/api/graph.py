@@ -446,13 +446,61 @@ async def test_db_connection():
 async def explain_project(repo_key: str):
     """
     Get LLM-generated explanation of the project including database schema.
+    Supports both in-memory graphs and MongoDB organization graphs.
     """
     try:
         decoded_key = unquote(repo_key)
     except Exception:
         decoded_key = repo_key
     
-    # Find the graph
+    logger.info(f"Requesting explanation for: {decoded_key}")
+    
+    # Check if it's an organization graph (stored in MongoDB)
+    if decoded_key.startswith("org:") or repo_key.startswith("org:"):
+        org_key = decoded_key if decoded_key.startswith("org:") else repo_key
+        logger.info(f"Loading organization graph for explanation: {org_key}")
+        
+        graph_doc = get_graph(org_key)
+        
+        if not graph_doc:
+            raise HTTPException(status_code=404, detail=f"Organization graph '{org_key}' not found")
+        
+        org_graph = graph_doc.get("graph_data", {})
+        
+        # Use LLM service to explain organization graph
+        try:
+            from app.core.llm import LLMService
+            llm_service = LLMService()
+            
+            # Create a simple explanation for organization graph
+            nodes = org_graph.get("nodes", [])
+            edges = org_graph.get("edges", [])
+            
+            explanation = llm_service.explain_organization_graph(org_graph, org_key)
+            return {
+                "explanation": explanation, 
+                "repository_name": org_key,
+                "node_count": len(nodes),
+                "edge_count": len(edges)
+            }
+        except Exception as e:
+            logger.error(f"Error generating explanation for org graph: {e}")
+            # Fallback: return basic info
+            nodes = org_graph.get("nodes", [])
+            edges = org_graph.get("edges", [])
+            node_types = {}
+            for node in nodes:
+                node_type = node.get("type", "unknown")
+                node_types[node_type] = node_types.get(node_type, 0) + 1
+            
+            return {
+                "explanation": f"Organization Graph: {org_key}\n\nServices: {len(nodes)}\nDependencies: {len(edges)}\nNode Types: {node_types}\n\nNote: Full LLM explanation unavailable.",
+                "repository_name": org_key,
+                "node_count": len(nodes),
+                "edge_count": len(edges)
+            }
+    
+    # Find the graph in parsed_graphs (in-memory cache)
     actual_key = None
     for test_key in [decoded_key, repo_key]:
         if test_key in parsed_graphs:

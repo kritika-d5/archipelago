@@ -253,6 +253,88 @@ Database Schema Explanation:"""
             logger.error(f"Error explaining project: {e}")
             return f"Error generating project explanation: {str(e)}"
     
+    def explain_organization_graph(self, org_graph: Dict[str, Any], org_key: str) -> str:
+        """
+        Generate a comprehensive explanation of an organization's service graph.
+        
+        Args:
+            org_graph: Organization graph with nodes and edges
+            org_key: Organization key/name
+            
+        Returns:
+            Organization graph explanation string
+        """
+        try:
+            nodes = org_graph.get("nodes", [])
+            edges = org_graph.get("edges", [])
+            
+            # Build context about services and dependencies
+            context_parts = [f"Organization: {org_key}"]
+            
+            # Collect service information
+            services_by_type = {}
+            for node in nodes:
+                node_type = node.get("type", "service")
+                if node_type not in services_by_type:
+                    services_by_type[node_type] = []
+                services_by_type[node_type].append(node)
+            
+            context_parts.append(f"\nServices ({len(nodes)}):")
+            for service_type, service_list in services_by_type.items():
+                context_parts.append(f"  {service_type.upper()}: {len(service_list)}")
+                for service in service_list[:10]:  # Limit to first 10 per type
+                    service_id = service.get("id", "unknown")
+                    language = service.get("language", "unknown")
+                    services = service.get("services", [])
+                    context_parts.append(f"    - {service_id} ({language})")
+                    if services:
+                        context_parts.append(f"      Services: {', '.join(services[:3])}")
+            
+            # Collect dependency information
+            context_parts.append(f"\nDependencies ({len(edges)}):")
+            dependency_types = {}
+            for edge in edges:
+                dep_type = edge.get("dependency_type", "unknown")
+                dependency_types[dep_type] = dependency_types.get(dep_type, 0) + 1
+            
+            for dep_type, count in dependency_types.items():
+                context_parts.append(f"  {dep_type}: {count}")
+            
+            context = "\n".join(context_parts)
+            
+            # Build prompt for organization graph explanation
+            prompt = f"""You are an expert system architect. Analyze the following organization's service graph and provide a clear explanation.
+
+{context}
+
+Provide a focused explanation of the service architecture. Include:
+1. **Overview**: Summary of the organization's service portfolio
+2. **Service Architecture**: Types and categorization of services
+3. **Key Dependencies**: Main dependency patterns and relationships
+4. **Architecture Patterns**: Identified architectural patterns (microservices, monolith, etc.)
+5. **Potential Improvements**: Suggestions for improving the architecture (if applicable)
+
+Keep it concise and focused on the service dependencies and architecture patterns.
+
+Architecture Explanation:"""
+            
+            # Call Groq API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert system architect who explains service architectures clearly and concisely, focusing on service dependencies, patterns, and relationships."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logger.error(f"Error explaining organization graph: {e}")
+            return f"Error generating organization explanation: {str(e)}"
+    
     def analyze_what_if(self, codebase_graph: CodebaseGraph,
                        request: WhatIfRequest) -> WhatIfResponse:
         """

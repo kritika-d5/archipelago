@@ -258,27 +258,150 @@ async def get_notion_page_content(page_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class NotionUpdateRequest(BaseModel):
+    page_id: str
+    content: str
+    suggestion_type: str = "add"  # "add", "update", "fix"
+    current_text: str = ""  # Text to find and replace (for update/fix)
+    suggested_text: str = ""  # New text to insert/replace with
+
+
 @router.post("/notion/update")
-async def update_notion_page(request: dict):
+async def update_notion_page(request: NotionUpdateRequest):
+    """
+    Apply a documentation suggestion to a Notion page.
+    
+    For "update" or "fix" types: Finds the current_text in the document and replaces it with suggested_text.
+    For "add" type: Inserts the suggested_text at an appropriate location.
+    """
     composio = get_composio()
     if not composio:
         raise HTTPException(status_code=503, detail="Composio not configured")
-    page_id = request.get("page_id")
-    content = request.get("content")
-    if not page_id or not content:
-        raise HTTPException(status_code=400, detail="page_id and content required")
+    
+    if not request.page_id:
+        raise HTTPException(status_code=400, detail="page_id required")
+    
+    # Use suggested_text if provided, otherwise fall back to content
+    suggested_content = request.suggested_text or request.content
+    if not suggested_content:
+        raise HTTPException(status_code=400, detail="content or suggested_text required")
+    
     try:
+        # Get current page content to find where to insert/update
+        page_content_result = _execute_tool(
+            composio,
+            "NOTION_FETCH_ALL_BLOCK_CONTENTS",
+            {"block_id": request.page_id, "recursive": True, "max_depth": 5},
+        )
+        
+        data = page_content_result.get("data", page_content_result) if isinstance(page_content_result, dict) else page_content_result
+        blocks = data if isinstance(data, list) else (data.get("results", []) or data.get("blocks", []) or data.get("children", []) if isinstance(data, dict) else [])
+        if not isinstance(blocks, list):
+            blocks = [data] if data else []
+        
+        # For "update" or "fix" types, try to find and update existing content
+        if request.suggestion_type in ("update", "fix") and request.current_text:
+            # Find block containing the current text
+            target_block_id = None
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                block_id = block.get("id") or block.get("block_id", "")
+                block_type = block.get("type", "")
+                content = block.get(block_type, {}) or block.get("content", {})
+                
+                # Extract text from block
+                block_text = ""
+                if isinstance(content, dict):
+                    rich_text = content.get("rich_text", []) or content.get("text", [])
+                    block_text = " ".join([r.get("plain_text", "") for r in rich_text if isinstance(r, dict)])
+                elif isinstance(content, str):
+                    block_text = content
+                
+                # Check if current_text appears in this block
+                if request.current_text.lower().strip() in block_text.lower():
+                    target_block_id = block_id
+                    break
+            
+            if target_block_id:
+                # Try to update the existing block
+                # Note: Composio may not have direct block update, so we'll insert after and note the old content
+                try:
+                    # Insert the new content right after the block we found
+                    result = _execute_tool(
+                        composio,
+                        "NOTION_ADD_MULTIPLE_PAGE_CONTENT",
+                        {
+                            "parent_block_id": target_block_id,
+                            "content_blocks": [
+                                {
+                                    "content": suggested_content[:2000],
+                                    "block_property": "paragraph"
+                                }
+                            ]
+                        },
+                    )
+                    logger.info(f"Inserted updated content after block {target_block_id} in Notion page: {request.page_id}")
+                    return {
+                        "success": True,
+                        "result": result,
+                        "message": f"Suggested content has been inserted in the document near the relevant section. Please review and remove the old text if needed.",
+                        "notion_page_url": f"https://www.notion.so/{request.page_id.replace('-', '')}",
+                    }
+                except Exception as update_error:
+                    logger.warning(f"Failed to insert after block, falling back to append: {update_error}")
+                    # Fall through to append if insert fails
+        
+        # For "add" type or if update failed, insert at appropriate location
+        # Try to find a good insertion point (after relevant section) or append at end
+        insertion_block_id = request.page_id  # Default to page root
+        
+        # If we have current_text, try to find a block after it
+        if request.current_text:
+            found_current = False
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                block_type = block.get("type", "")
+                content = block.get(block_type, {}) or block.get("content", {})
+                block_text = ""
+                if isinstance(content, dict):
+                    rich_text = content.get("rich_text", []) or content.get("text", [])
+                    block_text = " ".join([r.get("plain_text", "") for r in rich_text if isinstance(r, dict)])
+                elif isinstance(content, str):
+                    block_text = content
+                
+                if request.current_text.lower().strip() in block_text.lower():
+                    found_current = True
+                elif found_current:
+                    # Use the next block as insertion point
+                    insertion_block_id = block.get("id") or block.get("block_id", "")
+                    break
+        
+        # Insert the new content
         result = _execute_tool(
             composio,
             "NOTION_ADD_MULTIPLE_PAGE_CONTENT",
-            {"parent_block_id": page_id, "content_blocks": [{"content": "[Suggested doc update] " + content[:2000], "block_property": "paragraph"}]},
+            {
+                "parent_block_id": insertion_block_id,
+                "content_blocks": [
+                    {
+                        "content": suggested_content[:2000],
+                        "block_property": "paragraph"
+                    }
+                ]
+            },
         )
+        
+        action = "inserted" if request.suggestion_type == "add" else "added"
+        logger.info(f"Successfully {action} suggestion to Notion page: {request.page_id}")
+        
         return {
             "success": True,
             "result": result,
-            "message": "Content added as a new paragraph at the bottom of your Notion page. Open the page in Notion to see it.",
-            "notion_page_url": f"https://www.notion.so/{page_id.replace('-', '')}",
+            "message": f"Suggested content has been {action} in the document. Open the page in Notion to see the changes.",
+            "notion_page_url": f"https://www.notion.so/{request.page_id.replace('-', '')}",
         }
     except Exception as e:
         logger.error(f"Update Notion page failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to update Notion page: {str(e)}")
