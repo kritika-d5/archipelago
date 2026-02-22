@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import parse, graph, query, health, architecture, organization, integrations
+from app.api import parse, graph, query, health, architecture, organization, integrations, learning_path, timeline
 from app.config import LOG_LEVEL
 
 # Configure logging
@@ -28,6 +28,8 @@ app.include_router(health.router)
 app.include_router(architecture.router)
 app.include_router(organization.router)
 app.include_router(integrations.router)
+app.include_router(learning_path.router)
+app.include_router(timeline.router)
 
 @app.get("/")
 def root():

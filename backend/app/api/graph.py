@@ -35,9 +35,19 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
         graph_doc = get_graph(org_key)
         
         if not graph_doc:
+            logger.error(f"Organization graph not found in MongoDB: {org_key}")
             raise HTTPException(status_code=404, detail=f"Organization graph '{org_key}' not found in MongoDB")
         
+        logger.info(f"Found organization document: {list(graph_doc.keys())}")
+        
+        # Try to get graph_data - it should be the main field
         graph_data = graph_doc.get("graph_data", {})
+        
+        if not graph_data:
+            logger.error(f"No graph_data in organization document: {org_key}")
+            raise HTTPException(status_code=404, detail=f"Organization graph data is empty for '{org_key}'")
+        
+        logger.info(f"Organization graph loaded successfully. Nodes: {len(graph_data.get('nodes', []))}, Edges: {len(graph_data.get('edges', []))}")
         
         # Convert organization graph format to visualization format
         visualization = convert_org_graph_to_visualization(graph_data, org_key)

@@ -200,6 +200,19 @@ body {
   margin-bottom: 2rem;
 }
 
+/* Graph page: align info cards in a single row, no spare gaps */
+.graph-page .info-grid {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+}
+
+@media (max-width: 700px) {
+  .graph-page .info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .info-card {
   background: var(--bg-tertiary);
   padding: 1.5rem;
@@ -1413,12 +1426,21 @@ body {
 .main-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-  margin-top: 2rem;
+  gap: 1.5rem;
+  margin-top: 0;
 }
 
 .graph-section {
-  min-height: 600px;
+  min-height: 500px;
+}
+
+/* Graph page: tighter layout */
+.graph-page .main-layout {
+  gap: 1.5rem;
+}
+
+.graph-page .graph-section {
+  min-width: 0; /* allow shrink in grid */
 }
 
 .chatbot-section {

@@ -125,6 +125,41 @@ def get_parsed_data(graph_name):
         logger.error(f"Error getting parsed data from MongoDB: {str(e)}")
         raise
 
+def get_org_learning_metadata(org_key: str):
+    """Get learning metadata (llm_summaries, notion_docs) for an org. Returns None if not found."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    try:
+        result = db.org_learning_metadata.find_one({"org_key": org_key})
+        if result:
+            result["_id"] = str(result["_id"])
+        return result
+    except Exception as e:
+        logger.error(f"Error getting org learning metadata: {e}")
+        raise
+
+
+def save_org_learning_metadata(org_key: str, llm_summaries: dict = None, notion_docs: str = ""):
+    """Save or update learning metadata for an org."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    try:
+        update = {"org_key": org_key}
+        if llm_summaries is not None:
+            update["llm_summaries"] = llm_summaries
+        if notion_docs is not None:
+            update["notion_docs"] = notion_docs
+        result = db.org_learning_metadata.update_one(
+            {"org_key": org_key},
+            {"$set": update},
+            upsert=True,
+        )
+        return result.upserted_id or result.modified_count
+    except Exception as e:
+        logger.error(f"Error saving org learning metadata: {e}")
+        raise
+
+
 def test_connection():
     """Test MongoDB connection."""
     try:
@@ -134,3 +169,43 @@ def test_connection():
         return {"status": "connected", "database": "mangobytes", "collections": db.list_collection_names()}
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+def save_timeline_event(event: dict):
+    """Save a timeline event to the `timeline` collection.
+
+    Event document should include at least: event_id, provider, repo, actor, timestamp,
+    event_type, commit_sha, message, files_changed, is_doc_change, url, raw_payload
+    """
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    try:
+        # Ensure event_id or generated timestamp key
+        event_doc = dict(event)
+        event_doc["received_at"] = datetime.utcnow()
+        result = db.timeline.insert_one(event_doc)
+        logger.info(f"Timeline event saved (id={result.inserted_id}) for repo={event_doc.get('repo')}")
+        return str(result.inserted_id)
+    except Exception as e:
+        logger.error(f"Error saving timeline event: {str(e)}")
+        raise
+
+
+def get_timeline_events(limit: int = 50, skip: int = 0, repo: str = None, doc_only: bool = False):
+    """Retrieve timeline events with simple filtering and pagination."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    try:
+        query = {}
+        if repo:
+            query["repo"] = repo
+        if doc_only:
+            query["is_doc_change"] = True
+        cursor = db.timeline.find(query).sort("timestamp", -1).skip(int(skip)).limit(int(limit))
+        events = list(cursor)
+        for ev in events:
+            ev["_id"] = str(ev["_id"])
+        return events
+    except Exception as e:
+        logger.error(f"Error fetching timeline events: {str(e)}")
+        raise

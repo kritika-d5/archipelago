@@ -1,0 +1,342 @@
+/**
+ * Cursor-style Dashboard Layout
+ * Premium, minimal, developer-first
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --ds-bg-deep: #0f1115;
+  --ds-bg-primary: #13161c;
+  --ds-bg-card: #161a22;
+  --ds-bg-elevated: #1e232d;
+  --ds-text: #e6e9ef;
+  --ds-text-muted: #8b92a0;
+  --ds-accent: #5b8def;
+  --ds-accent-hover: #6d9bf7;
+  --ds-accent-muted: rgba(91, 141, 239, 0.12);
+  --ds-border: rgba(255, 255, 255, 0.06);
+  --ds-radius: 10px;
+  --ds-sidebar-w: 240px;
+  --ds-chat-w: 360px;
+}
+
+/* Layout */
+.ds-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--ds-bg-deep);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ds-main-inner {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Left Sidebar */
+.ds-sidebar {
+  width: var(--ds-sidebar-w);
+  min-width: var(--ds-sidebar-w);
+  background: var(--ds-bg-primary);
+  border-right: 1px solid var(--ds-border);
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 0;
+}
+
+.ds-sidebar-logo {
+  padding: 0 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ds-logo-mark {
+  font-size: 1.25rem;
+  opacity: 0.9;
+}
+
+.ds-logo-text {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--ds-text);
+}
+
+.ds-sidebar-section {
+  padding: 0 1rem;
+  margin-bottom: 1rem;
+}
+
+.ds-sidebar-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ds-text-muted);
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.ds-sidebar-select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--ds-bg-elevated);
+  border: 1px solid var(--ds-border);
+  border-radius: 6px;
+  color: var(--ds-text);
+  font-size: 0.875rem;
+}
+
+.ds-sidebar-nav {
+  flex: 1;
+  padding: 0 0.5rem;
+}
+
+.ds-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--ds-text-muted);
+  text-decoration: none;
+  font-size: 0.875rem;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  margin-bottom: 0.25rem;
+}
+
+.ds-nav-item:hover {
+  color: var(--ds-text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ds-nav-item.active {
+  color: var(--ds-accent);
+  background: var(--ds-accent-muted);
+}
+
+.ds-nav-icon {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.ds-sidebar-footer {
+  padding: 0.5rem;
+  border-top: 1px solid var(--ds-border);
+}
+
+/* Main area */
+.ds-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 1.5rem 2rem;
+}
+
+/* Chat panel */
+.ds-chat-panel {
+  width: var(--ds-chat-w);
+  min-width: var(--ds-chat-w);
+  background: var(--ds-bg-primary);
+  border-left: 1px solid var(--ds-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.ds-chat-header {
+  padding: 1.25rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.ds-chat-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ds-text);
+  margin: 0 0 0.25rem 0;
+}
+
+.ds-chat-subtitle {
+  font-size: 0.75rem;
+  color: var(--ds-text-muted);
+  margin: 0;
+}
+
+.ds-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 200px;
+}
+
+.ds-chat-placeholder {
+  font-size: 0.8rem;
+  color: var(--ds-text-muted);
+  margin: 0;
+}
+
+.ds-chat-msg {
+  max-width: 92%;
+}
+
+.ds-chat-msg-user {
+  align-self: flex-end;
+}
+
+.ds-chat-msg-assistant {
+  align-self: flex-start;
+}
+
+.ds-chat-bubble {
+  padding: 0.6rem 0.9rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  border-radius: var(--ds-radius);
+}
+
+.ds-chat-msg-user .ds-chat-bubble {
+  background: var(--ds-accent-muted);
+  color: var(--ds-text);
+}
+
+.ds-chat-msg-assistant .ds-chat-bubble {
+  background: var(--ds-bg-elevated);
+  color: var(--ds-text);
+  border: 1px solid var(--ds-border);
+}
+
+.ds-chat-input-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-top: 1px solid var(--ds-border);
+}
+
+.ds-chat-input {
+  flex: 1;
+  padding: 0.6rem 0.9rem;
+  background: var(--ds-bg-elevated);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  color: var(--ds-text);
+  font-size: 0.875rem;
+}
+
+.ds-chat-input:focus {
+  outline: none;
+  border-color: var(--ds-accent);
+}
+
+.ds-chat-send {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-accent);
+  color: #0f1115;
+  border: none;
+  border-radius: var(--ds-radius);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.15s;
+}
+
+.ds-chat-send:hover:not(:disabled) {
+  background: var(--ds-accent-hover);
+}
+
+.ds-chat-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Bento metrics row */
+.ds-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ds-metric-card {
+  background: var(--ds-bg-card);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s, transform 0.15s;
+}
+
+.ds-metric-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
+}
+
+.ds-metric-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ds-text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.ds-metric-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ds-text);
+}
+
+/* Bento cards */
+.ds-bento {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ds-bento-2 { grid-template-columns: 1fr 1fr; }
+.ds-bento-4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (max-width: 1200px) {
+  .ds-bento-4 { grid-template-columns: repeat(2, 1fr); }
+  .ds-bento-2 { grid-template-columns: 1fr; }
+}
+
+.ds-bento-card {
+  background: var(--ds-bg-card);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  padding: 1.25rem;
+}
+
+.ds-bento-card h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ds-text);
+  margin: 0 0 1rem 0;
+}
+
+/* Loading / buttons within hub */
+.ds-layout .loading {
+  color: var(--ds-accent);
+}
+
+.ds-layout .btn-primary {
+  background: var(--ds-accent);
+  color: #0f1115;
+}
+
+.ds-layout .btn-primary:hover {
+  background: var(--ds-accent-hover);
+}
+
+/* Graph container */
+.ds-graph-wrap {
+  height: 520px;
+  background: var(--ds-bg-deep);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  margin-bottom: 1.5rem;
+}
