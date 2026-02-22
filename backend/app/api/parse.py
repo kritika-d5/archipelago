@@ -61,6 +61,22 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
                     "parsed_at": datetime.now()
                 }
                 
+                # MongoDB is already saved in analyze_organization, but ensure the data structure is correct
+                # Save with graph_data field for consistency with /visualize endpoint
+                try:
+                    dependency_graph = org_result.get("dependency_graph", {})
+                    graph_data_for_viz = {
+                        "nodes": dependency_graph.get("nodes", []),
+                        "edges": dependency_graph.get("edges", []),
+                        "statistics": dependency_graph.get("statistics", {}),
+                        "violations": dependency_graph.get("violations", [])
+                    }
+                    # Update/ensure MongoDB has the right structure
+                    save_graph(org_key, graph_data_for_viz, timestamp=datetime.now())
+                    logger.info(f"Saved organization graph_data to MongoDB: {org_key}")
+                except Exception as e:
+                    logger.error(f"Failed to save organization graph_data to MongoDB: {str(e)}")
+                
                 # Return success response with organization data
                 parsing_time = time.time() - start_time
                 logger.info(f"Organization analysis complete in {parsing_time:.2f}s")

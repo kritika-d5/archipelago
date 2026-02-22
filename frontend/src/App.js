@@ -4,6 +4,7 @@ import './App.css';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import KnowledgeGraph from './pages/KnowledgeGraph';
+import Timeline from './pages/Timeline';
 import Health from './pages/Health';
 import ArchitectureStudio from './pages/ArchitectureStudio';
 import GreenfieldBlueprint from './pages/GreenfieldBlueprint';
@@ -22,6 +23,7 @@ function App() {
               <a href="/">Home</a>
               <a href="/dashboard">Dashboard</a>
               <a href="/graph">Graph</a>
+              <a href="/timeline">Timeline</a>
               <a href="/health">Health</a>
               <a href="/architecture">Architecture</a>
             </div>
@@ -35,6 +37,7 @@ function App() {
             <Route path="/connect-callback" element={<ConnectCallback />} />
             <Route path="/blueprint" element={<GreenfieldBlueprint />} />
             <Route path="/graph" element={<KnowledgeGraph />} />
+            <Route path="/timeline" element={<Timeline />} />
             <Route path="/health" element={<Health />} />
             <Route path="/architecture" element={<ArchitectureStudio />} />
             <Route path="/organization/:orgId/learning-path" element={<LearningPathPage />} />
