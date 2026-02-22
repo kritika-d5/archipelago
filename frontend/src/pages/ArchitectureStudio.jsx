@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api, { generateArchitectureBlueprint } from '../services/api';
 import mermaid from 'mermaid';
 
@@ -25,37 +25,15 @@ function ArchitectureStudio() {
     });
   }, []);
 
-  useEffect(() => {
-    if (blueprint && blueprint.mermaid_diagram) {
-      const timer = setTimeout(() => {
-        renderMermaidDiagram();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [blueprint]);
-
-  const loadParsedGraphs = async () => {
-    try {
-      const response = await api.get('/api/parse/');
-      setParsedGraphs(response.data.graphs || []);
-    } catch (err) {
-      console.error('Error loading graphs:', err);
-    }
-  };
-
-  const renderMermaidDiagram = async () => {
+  const renderMermaidDiagram = useCallback(async () => {
     if (!blueprint || !blueprint.mermaid_diagram) return;
-    
     try {
       const element = document.getElementById('mermaid-diagram');
       if (element) {
         element.innerHTML = '';
-        const id = `mermaid-${Date.now()}`;
         element.setAttribute('data-processed', 'false');
-        
         const graphDefinition = blueprint.mermaid_diagram;
         element.textContent = graphDefinition;
-        
         await mermaid.run({
           nodes: [element],
           suppressErrors: true
@@ -63,11 +41,28 @@ function ArchitectureStudio() {
       }
     } catch (err) {
       console.error('Error rendering Mermaid diagram:', err);
-      // Fallback: show raw diagram code
-      const element = document.getElementById('mermaid-diagram');
-      if (element) {
-        element.innerHTML = `<pre style="padding: 1rem; background: #f4f4f4; border-radius: 4px; overflow: auto;">${blueprint.mermaid_diagram}</pre>`;
+      const el = document.getElementById('mermaid-diagram');
+      if (el && blueprint?.mermaid_diagram) {
+        el.innerHTML = `<pre style="padding: 1rem; background: #f4f4f4; border-radius: 4px; overflow: auto;">${blueprint.mermaid_diagram}</pre>`;
       }
+    }
+  }, [blueprint]);
+
+  useEffect(() => {
+    if (blueprint && blueprint.mermaid_diagram) {
+      const timer = setTimeout(() => {
+        renderMermaidDiagram();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [blueprint, renderMermaidDiagram]);
+
+  const loadParsedGraphs = async () => {
+    try {
+      const response = await api.get('/api/parse/');
+      setParsedGraphs(response.data.graphs || []);
+    } catch (err) {
+      console.error('Error loading graphs:', err);
     }
   };
 

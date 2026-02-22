@@ -19,6 +19,7 @@ function GreenfieldBlueprint() {
       return;
     }
     fetchBlueprint(initialPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only on mount when initialPrompt from location
   }, []);
 
   useEffect(() => {
@@ -26,6 +27,7 @@ function GreenfieldBlueprint() {
       const t = setTimeout(() => renderMermaid(), 100);
       return () => clearTimeout(t);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderMermaid reads blueprint from closure
   }, [blueprint]);
 
   useEffect(() => {

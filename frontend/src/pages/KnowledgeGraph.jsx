@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import cytoscape from 'cytoscape';
 import coseBilkent from 'cytoscape-cose-bilkent';
 import ReactMarkdown from 'react-markdown';
@@ -19,7 +19,6 @@ function KnowledgeGraph() {
   const [chatMessages, setChatMessages] = useState([]);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState([]);
   const [showJson, setShowJson] = useState(false);
 
   const EXAMPLE_QUESTIONS = [
@@ -68,12 +67,14 @@ function KnowledgeGraph() {
       setRepoKey(parsedGraphs[0].key);
       loadGraph(parsedGraphs[0].key);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: run when parsedGraphs available
   }, [parsedGraphs]);
 
   useEffect(() => {
     if (docContent && docDiffRef.current && docDiffResult) {
       docDiffRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll only when docDiffResult changes
   }, [docContent, docDiffResult]);
 
   const hasAutoRunDocDiff = useRef(false);
@@ -93,6 +94,7 @@ function KnowledgeGraph() {
         }
       })();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when repoKey and docContent are set
   }, [repoKey, docContent]);
 
   const loadParsedGraphs = async () => {
@@ -108,6 +110,7 @@ function KnowledgeGraph() {
     if (graphData && containerRef.current) {
       renderGraph();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderGraph reads graphData from closure
   }, [graphData]);
 
   const loadGraph = async (key) => {
@@ -541,6 +544,11 @@ function KnowledgeGraph() {
       setDocDiffResult(response.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to compare documentation');
+    } finally {
+      setLoadingDocDiff(false);
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!repoKey || !inputMessage.trim()) return;
 
@@ -593,7 +601,7 @@ function KnowledgeGraph() {
       };
       setMessages([...newMessages, errorMessage]);
     } finally {
-      setLoadingDocDiff(false);
+      setLoading(false);
     }
   };
 
@@ -661,6 +669,9 @@ function KnowledgeGraph() {
             </select>
             {repoKey && (
               <>
+                {repoKey.startsWith('org:') && (
+                  <Link to={`/organization/${repoKey.replace(/^org:/, '')}/learning-path`} className="btn btn-primary btn-sm">New to this Company</Link>
+                )}
                 <button onClick={() => loadGraph(repoKey)} className="btn btn-secondary btn-sm">Refresh</button>
                 <button onClick={() => loadJson(repoKey)} className="btn btn-ghost btn-sm">JSON</button>
               </>
@@ -749,9 +760,9 @@ function KnowledgeGraph() {
                                   );
                                 },
                                 p: ({node, ...props}) => <p style={{ marginBottom: '1rem', lineHeight: '1.6' }} {...props} />,
-                                h1: ({node, ...props}) => <h1 style={{ fontSize: '1.5rem', marginTop: '1.5rem', marginBottom: '1rem' }} {...props} />,
-                                h2: ({node, ...props}) => <h2 style={{ fontSize: '1.3rem', marginTop: '1.3rem', marginBottom: '0.8rem' }} {...props} />,
-                                h3: ({node, ...props}) => <h3 style={{ fontSize: '1.1rem', marginTop: '1.1rem', marginBottom: '0.6rem' }} {...props} />,
+                                h1: ({node, children, ...props}) => <h1 style={{ fontSize: '1.5rem', marginTop: '1.5rem', marginBottom: '1rem' }} {...props}>{children}</h1>,
+                                h2: ({node, children, ...props}) => <h2 style={{ fontSize: '1.3rem', marginTop: '1.3rem', marginBottom: '0.8rem' }} {...props}>{children}</h2>,
+                                h3: ({node, children, ...props}) => <h3 style={{ fontSize: '1.1rem', marginTop: '1.1rem', marginBottom: '0.6rem' }} {...props}>{children}</h3>,
                                 ul: ({node, ...props}) => <ul style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
                                 ol: ({node, ...props}) => <ol style={{ marginLeft: '1.5rem', marginBottom: '1rem' }} {...props} />,
                                 li: ({node, ...props}) => <li style={{ marginBottom: '0.5rem' }} {...props} />,
@@ -1140,6 +1151,5 @@ function KnowledgeGraph() {
     </div>
   );
 }
-  }
-}
+
 export default KnowledgeGraph;

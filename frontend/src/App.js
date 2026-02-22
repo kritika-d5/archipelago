@@ -9,6 +9,7 @@ import ArchitectureStudio from './pages/ArchitectureStudio';
 import GreenfieldBlueprint from './pages/GreenfieldBlueprint';
 import ConnectGitHub from './pages/ConnectGitHub';
 import ConnectCallback from './pages/ConnectCallback';
+import LearningPathPage from './pages/LearningPathPage';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
             <Route path="/graph" element={<KnowledgeGraph />} />
             <Route path="/health" element={<Health />} />
             <Route path="/architecture" element={<ArchitectureStudio />} />
+            <Route path="/organization/:orgId/learning-path" element={<LearningPathPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

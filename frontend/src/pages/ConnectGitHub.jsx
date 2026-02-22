@@ -14,7 +14,7 @@ function ConnectGitHub() {
   const [parsing, setParsing] = useState(false);
   const [lastParsedKey, setLastParsedKey] = useState(null);
   const [notionPages, setNotionPages] = useState([]);
-  const [selectedNotionPage, setSelectedNotionPage] = useState(null);
+  const [, setSelectedNotionPage] = useState(null);
   const [loadingNotionPages, setLoadingNotionPages] = useState(false);
   const [composioAvailable, setComposioAvailable] = useState(null);
   const [error, setError] = useState(null);

@@ -125,6 +125,41 @@ def get_parsed_data(graph_name):
         logger.error(f"Error getting parsed data from MongoDB: {str(e)}")
         raise
 
+def get_org_learning_metadata(org_key: str):
+    """Get learning metadata (llm_summaries, notion_docs) for an org. Returns None if not found."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    try:
+        result = db.org_learning_metadata.find_one({"org_key": org_key})
+        if result:
+            result["_id"] = str(result["_id"])
+        return result
+    except Exception as e:
+        logger.error(f"Error getting org learning metadata: {e}")
+        raise
+
+
+def save_org_learning_metadata(org_key: str, llm_summaries: dict = None, notion_docs: str = ""):
+    """Save or update learning metadata for an org."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    try:
+        update = {"org_key": org_key}
+        if llm_summaries is not None:
+            update["llm_summaries"] = llm_summaries
+        if notion_docs is not None:
+            update["notion_docs"] = notion_docs
+        result = db.org_learning_metadata.update_one(
+            {"org_key": org_key},
+            {"$set": update},
+            upsert=True,
+        )
+        return result.upserted_id or result.modified_count
+    except Exception as e:
+        logger.error(f"Error saving org learning metadata: {e}")
+        raise
+
+
 def test_connection():
     """Test MongoDB connection."""
     try:
