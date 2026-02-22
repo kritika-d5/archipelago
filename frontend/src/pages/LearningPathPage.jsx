@@ -5,6 +5,8 @@ import coseBilkent from 'cytoscape-cose-bilkent';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
+import DashboardLayout from '../components/DashboardLayout';
+import '../styles/ds-dashboard.css';
 import './LearningPathPage.css';
 
 cytoscape.use(coseBilkent);
@@ -256,29 +258,40 @@ export default function LearningPathPage() {
     }
   };
 
+  const orgKey = orgId?.startsWith('org:') ? orgId : `org:${orgId || ''}`;
+
   if (loading) {
     return (
-      <div className="lp-page">
-        <div className="card">
-          <div className="loading">Loading learning path...</div>
+      <DashboardLayout selectedKey={orgKey} parsedGraphs={[]} showChat={false}>
+        <div className="ds-bento-card" style={{ padding: '3rem', textAlign: 'center' }}>
+          <div className="loading">Loading learning path…</div>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
   if (error) {
     return (
-      <div className="lp-page">
-        <div className="card">
+      <DashboardLayout selectedKey={orgKey} parsedGraphs={[]} showChat={false}>
+        <div className="ds-bento-card" style={{ padding: '2rem' }}>
           <div className="lp-error">{error}</div>
           <button type="button" className="btn btn-primary" onClick={loadData}>Retry</button>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
   if (!data) return null;
 
   return (
-    <div className="lp-page">
+    <DashboardLayout
+      selectedKey={orgKey}
+      parsedGraphs={[]}
+      showChat
+      chatMessages={chatMessages}
+      chatInput={chatInput}
+      onChatInputChange={setChatInput}
+      onChatSend={sendChat}
+      chatLoading={chatLoading}
+    >
       <div className="lp-main">
         <header className="lp-header">
           <h1>Learning Path — {data.org_id?.replace('org:', '')}</h1>
@@ -335,34 +348,6 @@ export default function LearningPathPage() {
           )}
         </section>
       </div>
-
-      <aside className="lp-chat-sidebar">
-        <div className="lp-chat-header">Onboarding assistant</div>
-        <div className="lp-chat-messages">
-          {chatMessages.length === 0 && (
-            <p className="lp-chat-placeholder">Ask anything about the architecture. No raw code is used — answers are based on the graph and docs.</p>
-          )}
-          {chatMessages.map((m, i) => (
-            <div key={i} className={`lp-chat-msg lp-chat-msg-${m.role}`}>
-              <div className="lp-chat-msg-content">
-                {m.role === 'assistant' ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown> : m.content}
-              </div>
-            </div>
-          ))}
-          {chatLoading && <div className="lp-chat-msg lp-chat-msg-assistant">...</div>}
-        </div>
-        <div className="lp-chat-input-wrap">
-          <input
-            className="lp-chat-input"
-            value={chatInput}
-            onChange={e => setChatInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendChat()}
-            placeholder="Ask about services, dependencies, flows..."
-            aria-label="Chat message"
-          />
-          <button type="button" className="lp-chat-send" onClick={sendChat} disabled={chatLoading}>Send</button>
-        </div>
-      </aside>
-    </div>
+    </DashboardLayout>
   );
 }

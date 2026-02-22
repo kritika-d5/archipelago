@@ -1,0 +1,340 @@
+/**
+ * Design system theme for Dashboard & Graph pages
+ * Same dark theme, colors, and patterns as Learning Path / Hub
+ */
+
+.ds-themed {
+  --ds-bg-deep: #0f1115;
+  --ds-bg-primary: #13161c;
+  --ds-bg-card: #161a22;
+  --ds-bg-elevated: #1e232d;
+  --ds-text: #e6e9ef;
+  --ds-text-muted: #8b92a0;
+  --ds-accent: #5b8def;
+  --ds-accent-hover: #6d9bf7;
+  --ds-accent-muted: rgba(91, 141, 239, 0.12);
+  --ds-border: rgba(255, 255, 255, 0.06);
+  --ds-radius: 10px;
+  min-height: 100%;
+  background: var(--ds-bg-deep);
+  color: var(--ds-text);
+  padding: 1.5rem 0;
+}
+
+.ds-themed.graph-page {
+  padding-top: 0;
+}
+
+/* Dashboard & Graph: cards */
+.ds-themed .card {
+  background: var(--ds-bg-card);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  margin-bottom: 1.5rem;
+}
+
+.ds-themed .card-title {
+  color: var(--ds-text);
+  font-size: 1.25rem;
+}
+
+/* Form elements */
+.ds-themed .form-group label {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .form-group input,
+.ds-themed .form-group select,
+.ds-themed .form-group textarea {
+  background: var(--ds-bg-elevated);
+  border: 1px solid var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .form-group input:focus,
+.ds-themed .form-group select:focus,
+.ds-themed .form-group textarea:focus {
+  border-color: var(--ds-accent);
+}
+
+.ds-themed .form-group small {
+  color: var(--ds-text-muted);
+}
+
+/* Info cards & grid */
+.ds-themed .info-card {
+  background: var(--ds-bg-elevated);
+  border: 1px solid var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .info-card-label {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .info-card-value {
+  color: var(--ds-text);
+}
+
+/* Buttons */
+.ds-themed .btn-primary {
+  background: var(--ds-accent);
+  color: #0f1115;
+}
+
+.ds-themed .btn-primary:hover:not(:disabled) {
+  background: var(--ds-accent-hover);
+}
+
+.ds-themed .btn-secondary {
+  background: var(--ds-bg-elevated);
+  color: var(--ds-text);
+  border-color: var(--ds-border);
+}
+
+.ds-themed .btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ds-themed .btn-ghost {
+  background: transparent;
+  color: var(--ds-text-muted);
+  border-color: var(--ds-border);
+}
+
+.ds-themed .btn-ghost:hover {
+  background: var(--ds-bg-elevated);
+}
+
+/* Loading & error states */
+.ds-themed .loading {
+  color: var(--ds-accent);
+}
+
+.ds-themed .error {
+  background: rgba(248, 113, 113, 0.15);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.ds-themed .success {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+}
+
+/* Graph page specific */
+.ds-themed.graph-page .graph-page-header {
+  border-bottom-color: var(--ds-border);
+}
+
+.ds-themed .graph-page-title {
+  color: var(--ds-text);
+}
+
+.ds-themed .graph-page-label {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .repo-select {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .graph-container {
+  background: var(--ds-bg-deep);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+
+/* Bento cards (Graph page) */
+.ds-themed .bento-card {
+  background: var(--ds-bg-card);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+}
+
+.ds-themed .bento-card-title {
+  color: var(--ds-text);
+}
+
+.ds-themed .query-desc,
+.ds-themed .chat-examples-label {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .chat-example-chip {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .chat-example-chip:hover:not(:disabled) {
+  border-color: var(--ds-accent);
+}
+
+.ds-themed .chat-input {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .chat-input:focus {
+  border-color: var(--ds-accent);
+}
+
+.ds-themed .chat-bubble.user {
+  background: var(--ds-accent-muted);
+  border-color: var(--ds-border);
+}
+
+.ds-themed .chat-bubble.assistant {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+}
+
+.ds-themed .chat-messages {
+  background: var(--ds-bg-deep);
+  border-radius: var(--ds-radius);
+}
+
+.ds-themed .chat-welcome {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .chat-message.user {
+  background: var(--ds-accent-muted);
+}
+
+.ds-themed .chat-message.assistant {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+}
+
+.ds-themed .message-content {
+  color: var(--ds-text);
+}
+
+/* Doc textarea, answer box */
+.ds-themed .doc-textarea {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .doc-textarea:focus {
+  border-color: var(--ds-accent);
+}
+
+.ds-themed .answer-box {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  border-left-color: var(--ds-accent);
+}
+
+.ds-themed .answer-content,
+.ds-themed .answer-content p {
+  color: var(--ds-text);
+}
+
+.ds-themed .answer-content h1,
+.ds-themed .answer-content h2,
+.ds-themed .answer-content h3,
+.ds-themed .answer-content h4 {
+  color: var(--ds-text);
+}
+
+.ds-themed .answer-content code,
+.ds-themed .answer-inline-code {
+  color: var(--ds-accent);
+}
+
+.ds-themed .answer-content pre,
+.ds-themed .answer-code-block {
+  background: var(--ds-bg-deep);
+  border-color: var(--ds-border);
+}
+
+.ds-themed .answer-content pre code {
+  color: var(--ds-text);
+}
+
+.ds-themed .answer-content blockquote {
+  border-left-color: var(--ds-accent);
+  color: var(--ds-text-muted);
+  background: var(--ds-bg-elevated);
+}
+
+.ds-themed .answer-content table th,
+.ds-themed .answer-content table td {
+  border-color: var(--ds-border);
+}
+
+.ds-themed .answer-content table th {
+  background: var(--ds-bg-elevated);
+}
+
+.ds-themed .answer-content a {
+  color: var(--ds-accent);
+}
+
+/* Explanation box */
+.ds-themed .explanation-box {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .explanation-heading,
+.ds-themed .explanation-para {
+  color: var(--ds-text);
+}
+
+.ds-themed .explanation-loading {
+  color: var(--ds-text-muted);
+}
+
+/* Suggestion cards */
+.ds-themed .suggestion-card {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+}
+
+.ds-themed .suggestion-desc {
+  color: var(--ds-text);
+}
+
+.ds-themed .suggestion-text {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .relevant-elements {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .notion-where-hint {
+  color: var(--ds-text-muted);
+}
+
+.ds-themed .notion-where-hint a {
+  color: var(--ds-accent);
+}
+
+.ds-themed .recommendations li:before {
+  color: var(--ds-accent);
+}
+
+.ds-themed .schema-pre {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .reasoning-box {
+  background: var(--ds-bg-elevated);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+.ds-themed .reasoning-box h4 {
+  color: var(--ds-text);
+}

@@ -19,15 +19,15 @@ function GreenfieldBlueprint() {
       return;
     }
     fetchBlueprint(initialPrompt);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only on mount when initialPrompt from location
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialPrompt from location.state, run once on mount
+  }, [initialPrompt]);
 
   useEffect(() => {
     if (blueprint?.mermaid_diagram) {
       const t = setTimeout(() => renderMermaid(), 100);
       return () => clearTimeout(t);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderMermaid reads blueprint from closure
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderMermaid reads blueprint, avoid adding fn to deps
   }, [blueprint]);
 
   useEffect(() => {
