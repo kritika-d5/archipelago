@@ -65,7 +65,7 @@ function Dashboard() {
   };
 
   return (
-    <div>
+    <div className="ds-themed">
       <div className="card">
         <h2 className="card-title">Parse Repository</h2>
         {connectHint && <div className="info-card" style={{ marginBottom: '1rem' }}>{connectHint}</div>}
@@ -79,7 +79,7 @@ function Dashboard() {
               placeholder="https://github.com/user/repo.git or https://github.com/org-name"
               required
             />
-            <small style={{ color: '#666', display: 'block', marginTop: '0.5rem' }}>
+            <small style={{ display: 'block', marginTop: '0.5rem' }}>
               Enter a repository URL (e.g., https://github.com/user/repo.git) or organization URL (e.g., https://github.com/org-name) to parse all repos
             </small>
           </div>
