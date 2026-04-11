@@ -33,5 +33,9 @@ MONGO_URI = os.getenv("MONGO_URI")
 _raw_cors = os.getenv("CORS_ORIGINS", "")
 CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()]
 
+# Where the browser loads the React app (used for Composio OAuth redirect to /connect-callback).
+# Production: https://your-app.vercel.app  (no trailing slash)
+FRONTEND_PUBLIC_URL = (os.getenv("FRONTEND_PUBLIC_URL") or "http://localhost:3000").rstrip("/")
+
 # Composio (optional - for GitHub/Notion/Slack OAuth)
 COMPOSIO_API_KEY = os.getenv("COMPOSIO_API_KEY") or os.getenv("COMPOSIO_EKEY")

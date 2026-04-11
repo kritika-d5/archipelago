@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.config import COMPOSIO_API_KEY
+from app.config import COMPOSIO_API_KEY, FRONTEND_PUBLIC_URL
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
@@ -34,7 +34,7 @@ def get_composio():
 
 
 def _get_connect_url(composio, toolkit):
-    callback = f"http://localhost:3000/connect-callback?toolkit={toolkit}"
+    callback = f"{FRONTEND_PUBLIC_URL}/connect-callback?toolkit={toolkit}"
     session = composio.create(user_id=COMPOSIO_ENTITY_ID, manage_connections=False)
     try:
         cr = session.authorize(toolkit, callback_url=callback)

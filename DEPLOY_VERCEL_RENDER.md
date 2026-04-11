@@ -26,7 +26,8 @@ Use [MongoDB Atlas](https://www.mongodb.com/atlas) (or any reachable MongoDB). C
    | `MONGO_URI` | Atlas connection string (Secret) |
    | `GROQ_API_KEY` | For LLM features (Secret) |
    | `CORS_ORIGINS` | Your Vercel URLs (see below) |
-   | `COMPOSIO_API_KEY` | Optional |
+   | `FRONTEND_PUBLIC_URL` | **Required for “Connect GitHub” (Composio)** — your Vercel site root, e.g. `https://your-app.vercel.app` (no trailing slash). If unset, OAuth redirects to `http://localhost:3000/connect-callback`. |
+   | `COMPOSIO_API_KEY` | Optional (needed for GitHub/Notion connect) |
 6. Deploy and wait for a **public URL**, e.g. `https://archipelago-api-xxxx.onrender.com`.
 
 ### `CORS_ORIGINS` (required for the browser)
@@ -87,10 +88,27 @@ The service **spins down** after inactivity; the first request can take ~30–60
 
 ---
 
-## 6. Troubleshooting
+## 6. Composio / “Connect GitHub” redirect
+
+The API builds the OAuth return URL as **`{FRONTEND_PUBLIC_URL}/connect-callback`**. If **`FRONTEND_PUBLIC_URL`** is missing on Render, it defaults to **`http://localhost:3000`**, so after login you land on localhost (what you saw).
+
+**Fix:** On Render, set:
+
+`FRONTEND_PUBLIC_URL=https://your-app.vercel.app`
+
+(no path, no trailing slash). Redeploy the service.
+
+In the [Composio dashboard](https://app.composio.dev), if your app has **allowed redirect URLs**, add:
+
+`https://your-app.vercel.app/connect-callback`
+
+---
+
+## 7. Troubleshooting
 
 | Issue | What to check |
 |--------|----------------|
+| OAuth opens localhost after GitHub login | Set **`FRONTEND_PUBLIC_URL`** on Render to your Vercel URL; redeploy. |
 | CORS errors in browser | `CORS_ORIGINS` on Render matches the exact Vercel URL (scheme + host, no path). |
 | API calls fail / wrong host | `REACT_APP_API_URL` on Vercel; rebuild after changes. |
 | 502 / timeout on Render | Cold start (free tier) or crash on boot — check Render **Logs**; confirm `MONGO_URI` and imports. |
@@ -103,4 +121,4 @@ The service **spins down** after inactivity; the first request can take ~30–60
 - `render.yaml` — Render Blueprint for the API (`rootDir: backend`).
 - `frontend/vercel.json` — SPA fallback rewrites.
 - `frontend/src/services/api.js` — uses `REACT_APP_API_URL` when set.
-- `backend/app/config.py` + `main.py` — `CORS_ORIGINS` env support.
+- `backend/app/config.py` + `main.py` — `CORS_ORIGINS` and `FRONTEND_PUBLIC_URL` (Composio callback) support.

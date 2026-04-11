@@ -16,5 +16,5 @@ services:
         value: "3.11.6"
       - key: LOG_LEVEL
         value: INFO
-      # Add in dashboard (mark as Secret):
-      # MONGO_URI, GROQ_API_KEY, CORS_ORIGINS (e.g. https://your-app.vercel.app)
+      # Add in dashboard (mark as Secret where needed):
+      # MONGO_URI, GROQ_API_KEY, CORS_ORIGINS, FRONTEND_PUBLIC_URL (Vercel URL for OAuth callback)

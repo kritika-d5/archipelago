@@ -106,6 +106,8 @@ Create **`backend/.env`** (never commit it; it is gitignored).
 | `GROQ_API_KEY` | For LLM features | Groq API key for chat, architecture blueprints, and related endpoints |
 | `MONGO_URI` | For DB-backed graphs | MongoDB connection string |
 | `COMPOSIO_API_KEY` or `COMPOSIO_EKEY` | Optional | Composio for GitHub / Notion / Slack style integrations |
+| `FRONTEND_PUBLIC_URL` | Production | Public site URL for OAuth return (e.g. `https://app.vercel.app`). Defaults to `http://localhost:3000`. |
+| `CORS_ORIGINS` | Production | Comma-separated browser origins allowed to call the API (e.g. your Vercel URL). |
 | `REPO_STORAGE_DIR` | Optional | Where cloned repos are stored; if unset, temp storage may be used |
 | `LOG_LEVEL` | Optional | Default `INFO` |
 | `API_HOST` / `API_PORT` | Optional | Defaults `0.0.0.0` / `8000` |
