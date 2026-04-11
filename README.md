@@ -1,6 +1,6 @@
-# Archipelago
+# MangoBytes
 
-**Archipelago** is an engineering knowledge platform that turns GitHub repositories (and whole organizations) into a **living knowledge graph**. You can explore dependencies visually, ask natural-language questions about the codebase, compare documentation to the graph, generate architecture blueprints with an LLM, and use an architecture hub with metrics and learning-path style views.
+**MangoBytes** is an engineering knowledge platform that turns GitHub repositories (and whole organizations) into a **living knowledge graph**. You can explore dependencies visually, ask natural-language questions about the codebase, compare documentation to the graph, generate architecture blueprints with an LLM, and use an architecture hub with metrics and learning-path style views.
 
 ---
 
@@ -25,7 +25,7 @@
 | **Backend** | Python 3.11+, FastAPI, Uvicorn, Pydantic v2 |
 | **Graph / parsing** | NetworkX, GitPython, custom parsers |
 | **LLM** | Groq API (`GROQ_API_KEY`) |
-| **Database** | MongoDB (`MONGO_URI`), database name **`archipelago`** |
+| **Database** | MongoDB (`MONGO_URI`) for persisted graphs and org data |
 | **Optional** | Composio (`COMPOSIO_API_KEY` / `COMPOSIO_EKEY`) for OAuth integrations |
 
 ---
@@ -41,7 +41,7 @@
 
 ## Quick start (Windows)
 
-From the repository root:
+From the repo root:
 
 1. **Backend environment**
 
@@ -111,16 +111,12 @@ Create **`backend/.env`** (never commit it; it is gitignored).
 | `API_HOST` / `API_PORT` | Optional | Defaults `0.0.0.0` / `8000` |
 | `GROQ_ARCHITECTURE_MAX_TOKENS` | Optional | Caps completion tokens for architecture calls (helps with Groq on-demand TPM limits; default in code is conservative) |
 
-### MongoDB database name
-
-The app uses the MongoDB database **`archipelago`**. If you previously used an older database named `mangobytes`, copy or rename that database in MongoDB, or export/import collections into `archipelago`.
-
 ---
 
 ## Project layout
 
 ```
-<repo-root>/
+MangoBytes/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          # FastAPI app + routers
@@ -160,7 +156,7 @@ The app uses the MongoDB database **`archipelago`**. If you previously used an o
 
 ## API overview
 
-The FastAPI app title is **“Archipelago — Living Knowledge Graph”**. Routers include (non-exhaustive):
+The FastAPI app title is **“Living Knowledge Graph System”**. Routers include (non-exhaustive):
 
 - `/api/parse/` — Parse repositories and list parsed graphs
 - `/api/graph/…` — Visualization and saved graph data
@@ -172,11 +168,18 @@ Interactive docs: **http://127.0.0.1:8000/docs** (when the server is running).
 
 ---
 
+## Deploy (Vercel + Render)
+
+Step-by-step guide for hosting the **React app on Vercel** and the **FastAPI API on Render**: see **[DEPLOY_VERCEL_RENDER.md](./DEPLOY_VERCEL_RENDER.md)**. The repo includes `render.yaml` and `frontend/vercel.json`; set **`REACT_APP_API_URL`** on Vercel and **`CORS_ORIGINS`** + **`MONGO_URI`** on Render.
+
+---
+
 ## Groq rate limits
 
 Groq’s free / on-demand tiers enforce **tokens per minute (TPM)**. Very large prompts or high `max_tokens` can return `413` or rate-limit errors. The architecture agent uses a configurable cap (`GROQ_ARCHITECTURE_MAX_TOKENS`) to stay within typical limits; upgrade your Groq tier or reduce request size if you still hit limits.
 
 ---
+
 
 ## Contributing
 

@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import parse, graph, query, health, architecture, organization, integrations, learning_path, timeline
-from app.config import LOG_LEVEL
+from app.config import LOG_LEVEL, CORS_ORIGINS
 
 # Configure logging
 logging.basicConfig(
@@ -12,10 +12,13 @@ logging.basicConfig(
 
 app = FastAPI(title="Archipelago — Living Knowledge Graph")
 
-# CORS middleware for frontend
+_default_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+_cors = list(dict.fromkeys(_default_origins + CORS_ORIGINS))
+
+# CORS middleware for frontend (add production URLs via CORS_ORIGINS env on Render)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_cors,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

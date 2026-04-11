@@ -6,16 +6,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
 :root {
-  --ds-bg-deep: #0f1115;
-  --ds-bg-primary: #13161c;
-  --ds-bg-card: #161a22;
-  --ds-bg-elevated: #1e232d;
-  --ds-text: #e6e9ef;
-  --ds-text-muted: #8b92a0;
-  --ds-accent: #5b8def;
-  --ds-accent-hover: #6d9bf7;
-  --ds-accent-muted: rgba(91, 141, 239, 0.12);
-  --ds-border: rgba(255, 255, 255, 0.06);
+  --ds-bg-deep: #0a0a0a;
+  --ds-bg-primary: #0d0d0d;
+  --ds-bg-card: #141414;
+  --ds-bg-elevated: #1a1a1a;
+  --ds-text: #e8e8e8;
+  --ds-text-muted: #9ca3af;
+  --ds-accent: #d97706;
+  --ds-accent-hover: #f59e0b;
+  --ds-accent-muted: rgba(217, 119, 6, 0.14);
+  --ds-border: rgba(255, 255, 255, 0.08);
   --ds-radius: 10px;
   --ds-sidebar-w: 240px;
   --ds-chat-w: 360px;
@@ -61,7 +61,7 @@
 .ds-logo-text {
   font-weight: 600;
   font-size: 0.95rem;
-  color: var(--ds-text);
+  color: var(--ds-accent);
 }
 
 .ds-sidebar-section {
@@ -271,7 +271,7 @@
 }
 
 .ds-metric-card:hover {
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(217, 119, 6, 0.35);
   transform: translateY(-1px);
 }
 
@@ -312,9 +312,11 @@
 }
 
 .ds-bento-card h3 {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--ds-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ds-accent);
   margin: 0 0 1rem 0;
 }
 

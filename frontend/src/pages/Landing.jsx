@@ -23,8 +23,10 @@ function Landing() {
   return (
     <div className="landing">
       <div className="landing-hero">
-        <h1 className="landing-title">Archipelago</h1>
-        <p className="landing-subtitle">Engineering Knowledge Platform</p>
+        <h1 className="landing-title landing-title-brand">Archipelago</h1>
+        <p className="landing-subtitle">
+          <span className="landing-subtitle-accent">Engineering</span> Knowledge Platform
+        </p>
         {!showStartFresh ? (
           <div className="landing-options">
             <button className="landing-card" onClick={handleConnectGitHub}>

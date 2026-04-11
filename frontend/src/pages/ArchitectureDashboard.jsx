@@ -9,7 +9,13 @@ import '../styles/ds-dashboard.css';
 
 cytoscape.use(coseBilkent);
 
-const COLORS = { REST: '#5b8def', EVENT: '#34d399', Event: '#34d399', IMPORT: '#8b92a0', Import: '#8b92a0' };
+const COLORS = {
+  REST: '#d97706',
+  EVENT: '#f59e0b',
+  Event: '#f59e0b',
+  IMPORT: '#78716c',
+  Import: '#78716c',
+};
 
 export default function ArchitectureDashboard() {
   const [searchParams] = useSearchParams();
@@ -69,8 +75,27 @@ export default function ArchitectureDashboard() {
       container: containerRef.current,
       elements,
       style: [
-        { selector: 'node', style: { 'label': 'data(label)', 'background-color': '#5b8def', 'color': '#fff', 'font-size': '10px' } },
-        { selector: 'edge', style: { 'width': 1.5, 'line-color': '#8b92a0', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } },
+        {
+          selector: 'node',
+          style: {
+            label: 'data(label)',
+            'background-color': '#d97706',
+            color: '#ffffff',
+            'font-size': '10px',
+            'text-outline-width': 2,
+            'text-outline-color': '#1a0a00',
+            'text-outline-opacity': 0.85,
+          },
+        },
+        {
+          selector: 'edge',
+          style: {
+            width: 1.5,
+            'line-color': 'rgba(217, 119, 6, 0.4)',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+          },
+        },
       ],
       layout: { name: 'cose-bilkent', animate: false },
     });
@@ -186,7 +211,12 @@ export default function ArchitectureDashboard() {
               </div>
               <div className="ds-metric-card">
                 <div className="ds-metric-label">Violations</div>
-                <div className="ds-metric-value">{violations}</div>
+                <div
+                  className="ds-metric-value"
+                  style={violations > 0 ? { color: 'var(--ds-accent)' } : undefined}
+                >
+                  {violations}
+                </div>
               </div>
               <div className="ds-metric-card">
                 <div className="ds-metric-label">Event-Driven %</div>
@@ -211,7 +241,7 @@ export default function ArchitectureDashboard() {
                         label={({ name, value }) => `${name} ${value}`}
                       >
                         {pieData.map((entry, i) => (
-                          <Cell key={i} fill={COLORS[entry.name] || COLORS[entry.name.toUpperCase()] || '#8b92a0'} />
+                          <Cell key={i} fill={COLORS[entry.name] || COLORS[entry.name.toUpperCase()] || '#a16207'} />
                         ))}
                       </Pie>
                       <Tooltip contentStyle={{ background: 'var(--ds-bg-elevated)', border: '1px solid var(--ds-border)' }} />

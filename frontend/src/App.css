@@ -39,6 +39,7 @@ body {
   color: var(--text-primary);
   padding: 1rem 2rem;
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(217, 119, 6, 0.12);
 }
 
 .nav-container {
@@ -51,7 +52,10 @@ body {
 
 .nav-title {
   font-size: 1.5rem;
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  font-family: 'Times New Roman', Times, Georgia, serif;
 }
 
 .nav-links {
@@ -891,10 +895,23 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.landing-title-brand {
+  font-family: 'Times New Roman', Times, Georgia, serif;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 40px rgba(217, 119, 6, 0.25);
+}
+
 .landing-subtitle {
   color: var(--text-secondary);
   font-size: 1.1rem;
   margin-bottom: 3rem;
+}
+
+.landing-subtitle-accent {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .landing-options {
@@ -1111,6 +1128,146 @@ body {
   display: flex;
   gap: 1rem;
   justify-content: flex-end;
+}
+
+/* Architecture Studio — generated blueprint (dark surfaces, readable text) */
+.arch-studio-blueprint .arch-studio-section-title {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.arch-studio-blueprint .arch-studio-section-title:first-of-type {
+  margin-top: 0;
+}
+
+.arch-studio-box {
+  padding: 1rem 1.15rem;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.arch-studio-box::after {
+  content: '';
+  display: table;
+  clear: both;
+}
+
+.arch-studio-box strong {
+  color: var(--text-primary);
+}
+
+.arch-studio-confidence {
+  float: right;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.arch-studio-services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.arch-studio-service-card {
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.arch-studio-service-card h4 {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+.arch-studio-service-card p {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.arch-studio-service-card .arch-studio-tech {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.arch-studio-service-card .arch-studio-tech strong {
+  color: var(--text-primary);
+}
+
+.arch-studio-service-card ul {
+  margin: 0.25rem 0 0 1.25rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.arch-mermaid-wrap {
+  padding: 1rem;
+  background: var(--bg-primary);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  overflow: auto;
+  text-align: center;
+  min-height: 120px;
+}
+
+.arch-mermaid-host {
+  min-height: 80px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.arch-mermaid-wrap .mermaid {
+  display: flex;
+  justify-content: center;
+}
+
+.arch-mermaid-wrap svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.arch-studio-mermaid-fallback {
+  padding: 1rem;
+  margin: 0;
+  text-align: left;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.arch-studio-issues-title {
+  color: #f87171;
+}
+
+.arch-studio-recs-title {
+  color: #86efac;
+}
+
+.arch-studio-list {
+  margin-left: 1.5rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.arch-studio-list li {
+  margin-bottom: 0.5rem;
 }
 
 .blueprint-page {
@@ -2230,4 +2387,249 @@ body {
 .graph-page .graph-container {
   border-color: var(--border);
   background: var(--bg-primary);
+}
+
+/* —— System health page (black + orange) —— */
+.health-page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0 0 3rem;
+}
+
+.health-page-header {
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.health-page-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+.health-page-title {
+  font-size: 1.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem;
+}
+
+.health-page-lede {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  max-width: 640px;
+  margin: 0 0 1.25rem;
+}
+
+.health-inline-code {
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+}
+
+.health-refresh {
+  font-weight: 600;
+}
+
+.health-loading {
+  color: var(--accent);
+  font-size: 0.9rem;
+  margin-bottom: 1.25rem;
+}
+
+.health-loading--inline {
+  padding: 0.5rem 0.75rem;
+  background: var(--accent-muted);
+  border-radius: 8px;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  margin-bottom: 1rem;
+}
+
+.health-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.health-metric {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.06);
+}
+
+.health-metric-label {
+  display: block;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+}
+
+.health-metric-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+.health-metric-value--ok {
+  color: #86efac;
+}
+
+.health-metric-value--warn {
+  color: var(--accent-hover);
+}
+
+.health-metric-value--bad {
+  color: #f87171;
+}
+
+.health-metric-value--muted {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.health-banner {
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  margin-bottom: 1.25rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.health-banner--error {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+}
+
+.health-banner--warn {
+  background: var(--accent-muted);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: var(--text-primary);
+}
+
+.health-section {
+  margin-bottom: 2rem;
+}
+
+.health-section--llm .health-llm-body {
+  white-space: pre-wrap;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  padding: 1.25rem 1.35rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 12px 12px 0;
+}
+
+.health-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 0.75rem;
+}
+
+.health-count {
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.health-section-meta {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.health-tag {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  margin-right: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border-radius: 6px;
+}
+
+.health-chip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.health-chip {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+}
+
+.health-muted {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.health-violation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.health-violation-item {
+  padding: 0.9rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.health-violation-graph {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.health-violation-detail {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.health-violation-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }

@@ -1,0 +1,20 @@
+# Render Blueprint — deploy the FastAPI backend as a Web Service.
+# Dashboard: New → Blueprint → connect repo, or link this file from the repo root.
+# Set secrets in the Render dashboard: MONGO_URI, GROQ_API_KEY, CORS_ORIGINS, etc.
+
+services:
+  - type: web
+    name: archipelago-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.6"
+      - key: LOG_LEVEL
+        value: INFO
+      # Add in dashboard (mark as Secret):
+      # MONGO_URI, GROQ_API_KEY, CORS_ORIGINS (e.g. https://your-app.vercel.app)

@@ -28,5 +28,10 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI")
 
+# CORS: comma-separated origins (e.g. https://app.vercel.app,https://yourdomain.com)
+# Local dev defaults are merged in main.py if unset.
+_raw_cors = os.getenv("CORS_ORIGINS", "")
+CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()]
+
 # Composio (optional - for GitHub/Notion/Slack OAuth)
 COMPOSIO_API_KEY = os.getenv("COMPOSIO_API_KEY") or os.getenv("COMPOSIO_EKEY")
