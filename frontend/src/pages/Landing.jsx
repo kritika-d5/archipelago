@@ -23,7 +23,7 @@ function Landing() {
   return (
     <div className="landing">
       <div className="landing-hero">
-        <h1 className="landing-title">MangoBytes</h1>
+        <h1 className="landing-title">Archipelago</h1>
         <p className="landing-subtitle">Engineering Knowledge Platform</p>
         {!showStartFresh ? (
           <div className="landing-options">

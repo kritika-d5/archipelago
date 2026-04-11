@@ -10,7 +10,7 @@ function LeftSidebar({ selectedKey, parsedGraphs, onSelectKey }) {
     <aside className="ds-sidebar">
       <div className="ds-sidebar-logo">
         <span className="ds-logo-mark">⌘</span>
-        <span className="ds-logo-text">MangoBytes</span>
+        <span className="ds-logo-text">Archipelago</span>
       </div>
 
       <div className="ds-sidebar-section">

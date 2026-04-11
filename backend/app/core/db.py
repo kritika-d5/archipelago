@@ -23,7 +23,7 @@ def init_db():
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
         # Test the connection
         client.admin.command('ping')
-        db = client["mangobytes"]
+        db = client["archipelago"]
         logger.info("MongoDB connection established successfully")
         return True
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
@@ -166,7 +166,7 @@ def test_connection():
         if client is None or db is None:
             init_db()
         client.admin.command('ping')
-        return {"status": "connected", "database": "mangobytes", "collections": db.list_collection_names()}
+        return {"status": "connected", "database": "archipelago", "collections": db.list_collection_names()}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

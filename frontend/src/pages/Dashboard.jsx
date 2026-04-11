@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 
 function Dashboard() {
@@ -12,17 +12,18 @@ function Dashboard() {
   const [error, setError] = useState(null);
   const [parsedGraphs, setParsedGraphs] = useState([]);
   const [connectHint, setConnectHint] = useState(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connect = params.get('connect');
     if (connect === 'github') {
-      setConnectHint('Paste your GitHub repository or organization URL below and click Parse. Or use Connect to GitHub from the home page for OAuth.');
+      setConnectHint(
+        'Paste your GitHub repository or organization URL below and click Parse. Or use Connect to GitHub from the home page for OAuth.'
+      );
     }
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     loadParsedGraphs();
   }, []);
 
@@ -50,10 +51,8 @@ function Dashboard() {
       });
 
       if (response.data.success) {
-          setResult(response.data);
-          loadParsedGraphs();
-          // redirect user to graph/qna page after parse
-          try { navigate('/graph'); } catch (e) { /* noop */ }
+        setResult(response.data);
+        loadParsedGraphs();
       } else {
         setError(response.data.error || 'Parsing failed');
       }
@@ -65,127 +64,183 @@ function Dashboard() {
   };
 
   return (
-    <div className="ds-themed">
-      <div className="card">
-        <h2 className="card-title">Parse Repository</h2>
-        {connectHint && <div className="info-card" style={{ marginBottom: '1rem' }}>{connectHint}</div>}
-        <form onSubmit={handleParse}>
-          <div className="form-group">
-            <label>Repository URL or Organization</label>
-            <input
-              type="text"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/user/repo.git or https://github.com/org-name"
-              required
-            />
-            <small style={{ display: 'block', marginTop: '0.5rem' }}>
-              Enter a repository URL (e.g., https://github.com/user/repo.git) or organization URL (e.g., https://github.com/org-name) to parse all repos
-            </small>
-          </div>
-          <div className="form-group">
-            <label>Branch (optional)</label>
-            <input
-              type="text"
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="main"
-            />
-          </div>
-          <div className="form-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={includeTests}
-                onChange={(e) => setIncludeTests(e.target.checked)}
-              />
-              {' '}Include test files
-            </label>
-          </div>
-          <div className="form-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={includeVendor}
-                onChange={(e) => setIncludeVendor(e.target.checked)}
-              />
-              {' '}Include vendor/node_modules
-            </label>
-          </div>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Parsing...' : 'Parse Repository'}
-          </button>
-        </form>
+    <div className="dashboard-page">
+      <header className="dashboard-hero">
+        <p className="dashboard-eyebrow">Archipelago</p>
+        <h1 className="dashboard-title">Dashboard</h1>
+        <p className="dashboard-lede">
+          Parse a repo or an entire GitHub organization, then open the graph or architecture hub.
+        </p>
+      </header>
 
-        {error && <div className="error">{error}</div>}
-        {result && (
-          <div className="success">
-            <h3>Parsing Complete!</h3>
-            <div className="info-grid">
-              <div className="info-card">
-                <div className="info-card-label">{result.graph ? 'Files Parsed' : 'Repositories Parsed'}</div>
-                <div className="info-card-value">{result.files_parsed}</div>
+      <div className="dashboard-grid">
+        <section className="dashboard-panel dashboard-panel--accent">
+          <div className="dashboard-panel-head">
+            <span className="dashboard-panel-icon" aria-hidden>
+              ◈
+            </span>
+            <div>
+              <h2 className="dashboard-panel-title">Parse repository</h2>
+              <p className="dashboard-panel-sub">Clone, analyze, and build your knowledge graph.</p>
+            </div>
+          </div>
+
+          {connectHint && <div className="dashboard-callout">{connectHint}</div>}
+
+          <form className="dashboard-form" onSubmit={handleParse}>
+            <div className="form-group">
+              <label htmlFor="dash-repo-url">Repository URL or organization</label>
+              <input
+                id="dash-repo-url"
+                type="text"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/user/repo.git or https://github.com/org-name"
+                required
+              />
+              <small className="dashboard-field-hint">
+                Single repo URL or an organization URL to analyze all accessible repositories.
+              </small>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group form-group--grow">
+                <label htmlFor="dash-branch">Branch (optional)</label>
+                <input
+                  id="dash-branch"
+                  type="text"
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  placeholder="main"
+                />
               </div>
-              <div className="info-card">
-                <div className="info-card-label">Time Taken</div>
-                <div className="info-card-value">{result.parsing_time.toFixed(2)}s</div>
+            </div>
+
+            <div className="dashboard-checkboxes">
+              <label className="dashboard-check">
+                <input
+                  type="checkbox"
+                  checked={includeTests}
+                  onChange={(e) => setIncludeTests(e.target.checked)}
+                />
+                <span>Include test files</span>
+              </label>
+              <label className="dashboard-check">
+                <input
+                  type="checkbox"
+                  checked={includeVendor}
+                  onChange={(e) => setIncludeVendor(e.target.checked)}
+                />
+                <span>Include vendor / node_modules</span>
+              </label>
+            </div>
+
+            <button type="submit" className="btn btn-primary dashboard-submit" disabled={loading}>
+              {loading ? 'Parsing…' : 'Parse repository'}
+            </button>
+          </form>
+
+          {error && <div className="dashboard-alert dashboard-alert--error">{error}</div>}
+
+          {result && (
+            <div className="dashboard-success-block">
+              <h3 className="dashboard-success-title">Parsing complete</h3>
+              <div className="dashboard-stats">
+                <div className="dashboard-stat">
+                  <span className="dashboard-stat-label">
+                    {result.graph ? 'Files parsed' : 'Repositories parsed'}
+                  </span>
+                  <span className="dashboard-stat-value">{result.files_parsed}</span>
+                </div>
+                <div className="dashboard-stat">
+                  <span className="dashboard-stat-label">Time</span>
+                  <span className="dashboard-stat-value">{result.parsing_time.toFixed(2)}s</span>
+                </div>
+                {result.graph ? (
+                  <>
+                    <div className="dashboard-stat dashboard-stat--wide">
+                      <span className="dashboard-stat-label">Repository</span>
+                      <span className="dashboard-stat-value dashboard-stat-value--text">
+                        {result.graph?.metadata?.repository_name || '—'}
+                      </span>
+                    </div>
+                    <div className="dashboard-stat">
+                      <span className="dashboard-stat-label">Elements</span>
+                      <span className="dashboard-stat-value">
+                        {result.graph?.elements?.length || 0}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="dashboard-stat dashboard-stat--wide">
+                    <span className="dashboard-stat-label">Organization</span>
+                    <span className="dashboard-stat-value dashboard-stat-value--text">
+                      Cross-repo dependency graph generated
+                    </span>
+                  </div>
+                )}
               </div>
               {result.graph ? (
-                <>
-                  <div className="info-card">
-                    <div className="info-card-label">Repository</div>
-                    <div className="info-card-value">{result.graph?.metadata?.repository_name}</div>
-                  </div>
-                  <div className="info-card">
-                    <div className="info-card-label">Total Elements</div>
-                    <div className="info-card-value">{result.graph?.elements?.length || 0}</div>
-                  </div>
-                </>
+                <Link to="/graph" className="btn btn-secondary dashboard-cta">
+                  View graph
+                </Link>
               ) : (
-                <div className="info-card" style={{ gridColumn: 'span 2' }}>
-                  <div className="info-card-label">Organization Analysis</div>
-                  <div className="info-card-value">Cross-repo dependency graph generated</div>
+                <div className="dashboard-org-actions">
+                  <p className="dashboard-org-copy">
+                    Organization analysis is saved. Open the dependency graph to explore.
+                  </p>
+                  <Link to="/graph" className="btn btn-secondary dashboard-cta">
+                    View dependency graph
+                  </Link>
                 </div>
               )}
             </div>
-            {result.graph ? (
-              <a href="/graph" className="btn btn-secondary" style={{ marginTop: '1rem' }}>
-                View Graph
-              </a>
-            ) : (
-              <div style={{ marginTop: '1rem' }}>
-                <p>Organization analysis complete! The cross-repository dependency graph has been generated and saved.</p>
-                <a href="/graph" className="btn btn-secondary" style={{ marginTop: '0.5rem' }}>
-                  View Dependency Graph
-                </a>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+          )}
+        </section>
 
-      <div className="card">
-        <h2 className="card-title">Parsed Repositories</h2>
-        {parsedGraphs.length === 0 ? (
-          <p>No repositories parsed yet.</p>
-        ) : (
-          <div>
-            {parsedGraphs.map((graph, idx) => (
-              <div key={idx} className="info-card" style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <strong>{graph.repository}</strong>
-                    <br />
-                    <small>Parsed: {new Date(graph.parsed_at).toLocaleString()}</small>
-                  </div>
-                  <a href={`/graph?repo=${encodeURIComponent(graph.key)}`} className="btn btn-primary">
-                    View
-                  </a>
-                </div>
-              </div>
-            ))}
+        <section className="dashboard-panel">
+          <div className="dashboard-panel-head">
+            <span className="dashboard-panel-icon" aria-hidden>
+              ⎔
+            </span>
+            <div>
+              <h2 className="dashboard-panel-title">Parsed repositories</h2>
+              <p className="dashboard-panel-sub">Jump back into any saved graph.</p>
+            </div>
           </div>
-        )}
+
+          {parsedGraphs.length === 0 ? (
+            <div className="dashboard-empty">
+              <p className="dashboard-empty-title">Nothing parsed yet</p>
+              <p className="dashboard-empty-text">
+                Run a parse on the left, or{' '}
+                <Link to="/connect-github" className="dashboard-inline-link">
+                  connect GitHub
+                </Link>{' '}
+                from the home page.
+              </p>
+            </div>
+          ) : (
+            <ul className="dashboard-repo-list">
+              {parsedGraphs.map((graph) => (
+                <li key={graph.key} className="dashboard-repo-item">
+                  <div className="dashboard-repo-meta">
+                    <span className="dashboard-repo-name">{graph.repository}</span>
+                    <span className="dashboard-repo-date">
+                      Parsed {new Date(graph.parsed_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <Link
+                    to={`/graph?repo=${encodeURIComponent(graph.key)}`}
+                    className="btn btn-primary btn-sm"
+                  >
+                    Open graph
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </div>
   );

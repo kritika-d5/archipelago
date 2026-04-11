@@ -3,11 +3,77 @@ Architecture Agent for generating architecture blueprints.
 """
 import json
 import logging
+import os
 from typing import Dict, Any, Optional, List
 from app.core.llm import LLMService
 from app.schemas.architecture_schema import ArchitectureBlueprint, ArchitectureRequest
 
 logger = logging.getLogger(__name__)
+
+# Groq on-demand tier often rejects requests when prompt_tokens + max_tokens exceeds ~8000 TPM.
+# Your requirements text can be short; a high max_tokens still triggers 413.
+def _architecture_max_tokens() -> int:
+    raw = os.getenv("GROQ_ARCHITECTURE_MAX_TOKENS", "3500")
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 3500
+    return max(512, min(n, 7800))
+
+
+_JSON_CONCISE_SUFFIX = (
+    "\n\nOutput constraints: Return ONLY valid JSON. "
+    "Keep mermaid_diagram to at most 25 lines. "
+    "List at most 6 services. "
+    "Use double quotes for all JSON strings. No text before or after the JSON."
+)
+
+
+def _strip_markdown_fences(content: str) -> str:
+    content = content.strip()
+    if content.startswith("```json"):
+        content = content[7:]
+    elif content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    return content.strip()
+
+
+def _extract_json_object_string_aware(content: str) -> str:
+    """
+    Find outermost JSON object using brace depth, ignoring braces inside double-quoted strings.
+    Fixes false 'Unclosed JSON' when mermaid_diagram or other fields contain { or }.
+    """
+    first_brace = content.find("{")
+    if first_brace == -1:
+        raise ValueError("No JSON object found in response")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(first_brace, len(content)):
+        c = content[i]
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            if c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return content[first_brace : i + 1]
+
+    raise ValueError("Unclosed JSON object in response")
 
 
 class ArchitectureAgent:
@@ -203,7 +269,7 @@ Generate a detailed architecture blueprint in STRICT JSON format matching this e
 IMPORTANT:
 - Return ONLY valid JSON, no markdown, no explanations
 - Ensure all fields are present
-- mermaid_diagram should be valid Mermaid syntax
+- mermaid_diagram: valid Mermaid syntax, keep it under ~30 lines (subgraphs add many braces)
 - confidence_score should be between 0.0 and 1.0
 """
         return prompt
@@ -294,81 +360,74 @@ IMPORTANT:
 """
         return prompt
     
+    def _parse_llm_content_to_json_str(self, raw: str) -> str:
+        """Normalize LLM output and return a JSON object string."""
+        content = _strip_markdown_fences(raw)
+
+        # Whole response is JSON
+        try:
+            json.loads(content)
+            return content
+        except json.JSONDecodeError:
+            pass
+
+        extracted = _extract_json_object_string_aware(content)
+        try:
+            json.loads(extracted)
+            return extracted
+        except json.JSONDecodeError as e:
+            logger.error("Extracted JSON is invalid: %s", e)
+            logger.error("First 800 chars: %s", extracted[:800])
+            raise ValueError(f"Failed to extract valid JSON: {str(e)}") from e
+
+    def _call_llm_once(self, prompt: str, *, max_tokens: int, temperature: float) -> str:
+        response = self.llm_service.client.chat.completions.create(
+            model=self.llm_service.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert software architect. "
+                        "Respond with one valid JSON object only: no markdown fences, no commentary."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        msg = response.choices[0].message
+        if not msg or not msg.content:
+            raise ValueError("Empty LLM response")
+        return msg.content
+
     def call_llm(self, prompt: str) -> str:
         """
         Call LLM with prompt and extract JSON response.
-        
-        Args:
-            prompt: Prompt string
-            
-        Returns:
-            JSON response string
+        Retries with stricter size hints if parsing fails (e.g. truncation).
         """
-        try:
-            response = self.llm_service.client.chat.completions.create(
-                model=self.llm_service.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert software architect. Always respond with valid JSON only, no markdown formatting, no code blocks, no explanations before or after the JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.7,
-                max_tokens=4000
-            )
-            
-            content = response.choices[0].message.content.strip()
-            
-            # Remove markdown code blocks if present
-            if content.startswith("```json"):
-                content = content[7:]
-            elif content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            
-            content = content.strip()
-            
-            # Extract JSON object by finding first { and matching closing }
-            # This handles cases where there's extra text before or after
-            first_brace = content.find('{')
-            if first_brace == -1:
-                raise ValueError("No JSON object found in response")
-            
-            # Find the matching closing brace
-            brace_count = 0
-            last_brace = -1
-            for i in range(first_brace, len(content)):
-                if content[i] == '{':
-                    brace_count += 1
-                elif content[i] == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        last_brace = i
-                        break
-            
-            if last_brace == -1:
-                raise ValueError("Unclosed JSON object in response")
-            
-            # Extract just the JSON part
-            json_content = content[first_brace:last_brace + 1]
-            
-            # Validate it's valid JSON before returning
+        cap = _architecture_max_tokens()
+        attempts = [
+            (cap, 0.55, ""),
+            (cap, 0.35, _JSON_CONCISE_SUFFIX),
+            (cap, 0.25, _JSON_CONCISE_SUFFIX),
+        ]
+        last_error: Optional[Exception] = None
+
+        for i, (max_tokens, temperature, suffix) in enumerate(attempts):
             try:
-                json.loads(json_content)
-            except json.JSONDecodeError as e:
-                logger.error(f"Extracted JSON is still invalid: {str(e)}")
-                logger.error(f"Extracted content: {json_content[:500]}...")
-                raise ValueError(f"Failed to extract valid JSON: {str(e)}")
-            
-            return json_content
-        except Exception as e:
-            logger.error(f"Error calling LLM: {str(e)}")
-            raise
+                raw = self._call_llm_once(prompt + suffix, max_tokens=max_tokens, temperature=temperature)
+                return self._parse_llm_content_to_json_str(raw)
+            except ValueError as e:
+                last_error = e
+                logger.warning("Architecture LLM attempt %s failed: %s", i + 1, e)
+            except Exception as e:
+                last_error = e
+                logger.error("Architecture LLM attempt %s error: %s", i + 1, e)
+                raise
+
+        assert last_error is not None
+        raise last_error
     
     def validate_blueprint_schema(self, json_str: str) -> ArchitectureBlueprint:
         """

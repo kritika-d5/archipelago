@@ -7,7 +7,7 @@ from app.config import COMPOSIO_API_KEY
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
-COMPOSIO_ENTITY_ID = "mangobytes_default"
+COMPOSIO_ENTITY_ID = "archipelago_default"
 
 
 class ConnectUrlResponse(BaseModel):

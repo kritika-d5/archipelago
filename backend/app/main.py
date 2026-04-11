@@ -10,7 +10,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-app = FastAPI(title="Living Knowledge Graph System")
+app = FastAPI(title="Archipelago — Living Knowledge Graph")
 
 # CORS middleware for frontend
 app.add_middleware(
@@ -33,4 +33,4 @@ app.include_router(timeline.router)
 
 @app.get("/")
 def root():
-    return {"message": "Knowledge Graph System Running 🚀"}
+    return {"message": "Archipelago API running 🚀"}

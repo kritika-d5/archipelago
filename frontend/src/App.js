@@ -35,7 +35,7 @@ function AppContent() {
     <>
       <nav className="navbar">
         <div className="nav-container">
-          <h1 className="nav-title">MangoBytes</h1>
+          <h1 className="nav-title">Archipelago</h1>
           <div className="nav-links">
             <a href="/">Home</a>
             <a href="/dashboard">Dashboard</a>
