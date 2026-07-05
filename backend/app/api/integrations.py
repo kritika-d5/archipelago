@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import COMPOSIO_API_KEY, FRONTEND_PUBLIC_URL
 
@@ -13,6 +13,9 @@ COMPOSIO_ENTITY_ID = "archipelago_default"
 class ConnectUrlResponse(BaseModel):
     redirect_url: str
     toolkit: str
+    callback_url: str = Field(
+        description="Post-OAuth redirect we requested; should be your Vercel /connect-callback, not localhost."
+    )
 
 
 def get_composio():
@@ -35,12 +38,10 @@ def get_composio():
 
 def _get_connect_url(composio, toolkit):
     callback = f"{FRONTEND_PUBLIC_URL}/connect-callback?toolkit={toolkit}"
+    logger.info("Composio OAuth toolkit=%s callback_url=%s (FRONTEND_PUBLIC_URL from env)", toolkit, callback)
     session = composio.create(user_id=COMPOSIO_ENTITY_ID, manage_connections=False)
-    try:
-        cr = session.authorize(toolkit, callback_url=callback)
-    except TypeError:
-        cr = session.authorize(toolkit)
-    return cr.redirect_url
+    cr = session.authorize(toolkit, callback_url=callback)
+    return cr.redirect_url, callback
 
 
 @router.get("/connect-url/{toolkit}")
@@ -55,8 +56,8 @@ async def get_connect_url(toolkit: str) -> ConnectUrlResponse:
             detail="Composio not configured. Add COMPOSIO_API_KEY to backend/.env and restart the server. Get a key at composio.dev"
         )
     try:
-        url = _get_connect_url(composio, toolkit)
-        return ConnectUrlResponse(redirect_url=url, toolkit=toolkit)
+        url, callback = _get_connect_url(composio, toolkit)
+        return ConnectUrlResponse(redirect_url=url, toolkit=toolkit, callback_url=callback)
     except Exception as e:
         logger.error(f"Composio authorize failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

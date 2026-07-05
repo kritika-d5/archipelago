@@ -90,17 +90,48 @@ The service **spins down** after inactivity; the first request can take ~30–60
 
 ## 6. Composio / “Connect GitHub” redirect
 
-The API builds the OAuth return URL as **`{FRONTEND_PUBLIC_URL}/connect-callback`**. If **`FRONTEND_PUBLIC_URL`** is missing on Render, it defaults to **`http://localhost:3000`**, so after login you land on localhost (what you saw).
+The API builds the OAuth return URL as **`{FRONTEND_PUBLIC_URL}/connect-callback`**. If **`FRONTEND_PUBLIC_URL`** is missing on Render, it defaults to **`http://localhost:3000`**, so after login you land on localhost.
 
-**Fix:** On Render, set:
+### Step A — Confirm the API is using your Vercel URL (do this first)
 
-`FRONTEND_PUBLIC_URL=https://your-app.vercel.app`
+1. **Push the latest code** from this repo (the version that reads `FRONTEND_PUBLIC_URL`). If Render is still running an older build, it will keep using localhost in code.
+2. In Render → your Web Service → **Environment**, set exactly:
+   - **`FRONTEND_PUBLIC_URL`** = `https://your-app.vercel.app` (no trailing slash).
+3. **Redeploy** (Manual Deploy → Clear build cache → Deploy) so the new env and commit are live.
+4. In a browser, open (replace with your real Render host):
 
-(no path, no trailing slash). Redeploy the service.
+   `https://YOUR-RENDER-SERVICE.onrender.com/api/integrations/connect-url/github`
 
-In the [Composio dashboard](https://app.composio.dev), if your app has **allowed redirect URLs**, add:
+5. Check the JSON:
+   - **`callback_url`** must be `https://your-app.vercel.app/connect-callback?toolkit=github`.
+   - If **`callback_url` still starts with `http://localhost`**, Render is not seeing `FRONTEND_PUBLIC_URL` (wrong name, wrong service, or old deploy). Fix env and redeploy.
 
-`https://your-app.vercel.app/connect-callback`
+6. In Render **Logs**, when you hit that URL you should see a line like:  
+   `Composio OAuth toolkit=github callback_url=https://...`
+
+### Step B — Where to check “allowed redirects” in Composio
+
+Composio’s UI changes often; use this as a guide:
+
+1. Sign in at **[app.composio.dev](https://app.composio.dev)**.
+2. Open your **Project** (top-left / project switcher).
+3. Look under:
+   - **Settings** → **Project** / **Security** / **Redirect URLs** (wording varies), **or**
+   - **Auth configs** / **Integrations** → your **GitHub** auth config → allowed **Callback** / **Redirect** URLs.
+
+If you use **Composio’s default GitHub OAuth** (no custom GitHub OAuth app), Composio usually accepts the **`callback_url`** your backend sends on each `authorize` call; there may be no separate “allowlist” in the dashboard. If you use a **custom GitHub OAuth app** or **custom auth config**, you must align:
+
+- **GitHub** OAuth App → Authorization callback URL is Composio’s server (e.g. their documented `https://backend.composio.dev/...` callback — not your Vercel URL).
+- **Your** user-facing return URL is still the **`callback_url`** from our API (`https://your-app.vercel.app/connect-callback?...`).
+
+Add your Vercel callback anywhere Composio asks for **“Allowed redirect URLs”** or **“Post-connection redirect”** for your project.
+
+### Step C — Still landing on localhost after `callback_url` is correct on the API
+
+Then Composio may be ignoring the parameter (bug, old SDK, or project setting). Try:
+
+- **Composio Discord / support** with your `authConfigId`, `connected_account_id`, and the **`callback_url`** value from the JSON above.
+- Upgrade **`composio`** in `backend/requirements.txt` to the latest version and redeploy.
 
 ---
 
