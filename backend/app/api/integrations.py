@@ -154,15 +154,44 @@ async def get_connection_status(toolkit: str, session_id: str = Depends(get_sess
     return {"configured": True, "connected": bool(active)}
 
 
+def _toolkit_for_slug(slug: str) -> Optional[str]:
+    """Map a tool slug (e.g. GITHUB_LIST_REPOSITORIES...) to its toolkit key."""
+    s = (slug or "").upper()
+    for tk in ("github", "notion", "slack"):
+        if s.startswith(tk.upper()):
+            return tk
+    return None
+
+
+def _connection_id(conn) -> Optional[str]:
+    """Extract the connected-account id (ca_...) from a list item (object or dict)."""
+    if conn is None:
+        return None
+    cid = getattr(conn, "id", None)
+    if cid is None and isinstance(conn, dict):
+        cid = conn.get("id") or conn.get("nanoid") or conn.get("connected_account_id")
+    return cid
+
+
+def _resolve_connection_id(composio, slug, entity_id) -> Optional[str]:
+    """Pick a single active connected account for this user+toolkit so tool execution is
+    unambiguous even if multiple connections exist. Returns None if it can't resolve one."""
+    toolkit = _toolkit_for_slug(slug)
+    if not toolkit:
+        return None
+    auth_config_id = (COMPOSIO_AUTH_CONFIGS.get(toolkit) or "").strip()
+    if not auth_config_id:
+        return None
+    active = _active_connections(composio, entity_id, auth_config_id)
+    return _connection_id(active[0]) if active else None
+
+
 def _execute_tool(composio, slug, arguments, entity_id):
-    try:
-        return composio.tools.execute(
-            user_id=entity_id,
-            slug=slug,
-            arguments=arguments or {},
-        )
-    except Exception as e:
-        raise e
+    kwargs = dict(user_id=entity_id, slug=slug, arguments=arguments or {})
+    connected_account_id = _resolve_connection_id(composio, slug, entity_id)
+    if connected_account_id:
+        kwargs["connected_account_id"] = connected_account_id
+    return composio.tools.execute(**kwargs)
 
 
 @router.get("/github/repos")
