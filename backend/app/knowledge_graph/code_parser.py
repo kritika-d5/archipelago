@@ -1,6 +1,7 @@
 import os
 import ast
 import re
+import posixpath
 from pathlib import Path
 from typing import List, Dict, Optional, Set, Any
 import logging
@@ -404,9 +405,11 @@ class CodeParser:
     def parse_file(self, file_path: Path, repo_path: Path) -> tuple[List[CodeElement], List[Dependency], Module]:
         """Parse a file based on its language."""
         language = self.detect_language(file_path)
-        
+
         if language == Language.PYTHON:
             return self.parse_python_file(file_path, repo_path)
+        elif language in (Language.JAVASCRIPT, Language.TYPESCRIPT):
+            return self.parse_js_file(file_path, repo_path, language)
         else:
             # For other languages, create a basic module entry
             rel_path = str(file_path.relative_to(repo_path))
@@ -417,6 +420,46 @@ class CodeParser:
                 language=language
             )
             return [], [], module
+
+    def parse_js_file(self, file_path: Path, repo_path: Path,
+                      language: Language) -> tuple[List[CodeElement], List[Dependency], Module]:
+        """Lightweight JS/TS parsing: extract relative import specifiers so we can build
+        module->module import edges (no full AST — just enough for the dependency graph)."""
+        rel_path = str(file_path.relative_to(repo_path))
+        module = Module(
+            id=f"module:{rel_path}",
+            name=Path(file_path).stem,
+            file_path=rel_path,
+            language=language,
+        )
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        except Exception:
+            return [], [], module
+
+        specs = self._extract_js_imports(content)
+        module.imports = specs
+        rel_specs = [s for s in specs if s.startswith('.')]
+        if rel_specs:
+            module.metadata['js_imports'] = rel_specs
+        return [], [], module
+
+    def _extract_js_imports(self, content: str) -> List[str]:
+        """Extract import specifiers from JS/TS: `import ... from 'x'`, `import 'x'`,
+        `export ... from 'x'`, `require('x')`, and dynamic `import('x')`."""
+        specs: List[str] = []
+        patterns = [
+            r"""(?:import|export)\s+(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]""",
+            r"""require\(\s*['"]([^'"]+)['"]\s*\)""",
+            r"""import\(\s*['"]([^'"]+)['"]\s*\)""",
+        ]
+        for pat in patterns:
+            for m in re.finditer(pat, content):
+                spec = m.group(1)
+                if spec and spec not in specs:
+                    specs.append(spec)
+        return specs
     
     def parse_repository(self, repo_path: Path, repo_url: Optional[str] = None,
                         branch: Optional[str] = None, commit_hash: Optional[str] = None) -> CodebaseGraph:
@@ -637,7 +680,7 @@ class CodeParser:
                     add(dep)
                 # else: external base class (e.g. BaseModel) — drop
 
-        # Cross-module import edges (only between modules that exist in this repo)
+        # Cross-module import edges — Python (dotted module paths)
         dotted_to_module = {self._module_dotted(m): m.id for m in modules}
         for m in modules:
             for target in (m.metadata.get('import_targets') or []):
@@ -650,7 +693,42 @@ class CodeParser:
                         strength=0.6,
                     ))
 
+        # Cross-module import edges — JS/TS (relative file specifiers)
+        js_index = {self._strip_js_ext(m.file_path.replace('\\', '/')): m.id for m in modules}
+        for m in modules:
+            specs = m.metadata.get('js_imports') or []
+            if not specs:
+                continue
+            base_dir = posixpath.dirname(m.file_path.replace('\\', '/'))
+            for spec in specs:
+                resolved = posixpath.normpath(posixpath.join(base_dir, spec))
+                tid = self._match_js_target(resolved, js_index)
+                if tid:
+                    add(Dependency(
+                        source_id=m.id,
+                        target_id=tid,
+                        dependency_type=DependencyType.IMPORT,
+                        strength=0.6,
+                    ))
+
         return resolved
+
+    def _strip_js_ext(self, path: str) -> str:
+        for ext in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'):
+            if path.endswith(ext):
+                return path[:-len(ext)]
+        return path
+
+    def _match_js_target(self, resolved: str, js_index: Dict[str, str]) -> Optional[str]:
+        """Resolve a relative JS/TS import (already joined to the importer's dir) to a module id,
+        trying the path directly and as a package index (foo -> foo/index)."""
+        resolved = self._strip_js_ext(resolved)
+        if resolved in js_index:
+            return js_index[resolved]
+        idx = posixpath.join(resolved, 'index')
+        if idx in js_index:
+            return js_index[idx]
+        return None
 
     def _is_agent_class(self, node: ast.ClassDef, content: str) -> bool:
         """Check if a class is an agent."""

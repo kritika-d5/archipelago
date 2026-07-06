@@ -107,6 +107,14 @@ drifts between pages.
 
 ## Phase 1 — Make the graph actually show dependencies
 
+> **Status:** 1.1 ✅ (Python dependency resolution: calls/inheritance resolved to real IDs +
+> module import edges). JS/TS ✅ lightweight support (relative `import`/`require`/dynamic-import
+> specifiers → module→module import edges; verified 4/4 resolution incl. index files). This is
+> what fixes "0 edges" on JS/Next.js repos like devtrack.
+> **Known limits:** JS path aliases (`@/...` from tsconfig `paths`) not yet resolved — only
+> relative imports; JS/TS files still produce module nodes only (no class/function elements yet),
+> so category color-coding is coarse for JS repos. Next: V.1/V.2 viz, then deeper JS element parsing.
+
 ### Graph visualization (frontend, requested 2026-07-06)
 The graph currently renders every node the same flat orange with no interaction (KnowledgeGraph.jsx
 Cytoscape style is a single `node` selector). Once 1.1 gives it real edges + categories:
