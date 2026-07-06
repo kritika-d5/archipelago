@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.config import COMPOSIO_API_KEY, FRONTEND_PUBLIC_URL
+from app.config import COMPOSIO_API_KEY, FRONTEND_PUBLIC_URL, COMPOSIO_AUTH_CONFIGS
 from app.core.session import get_session_id
 
 logger = logging.getLogger(__name__)
@@ -59,10 +59,29 @@ def get_composio():
 
 
 def _get_connect_url(composio, toolkit, entity_id):
+    """Start an OAuth connection for this user via the standard connected_accounts flow.
+
+    Uses connected_accounts.link (not the Tool Router `create()`/`authorize()` path, which
+    requires Tool Router enrollment a standard project key doesn't have). Needs a per-toolkit
+    auth_config_id from the Composio dashboard.
+    """
+    auth_config_id = (COMPOSIO_AUTH_CONFIGS.get(toolkit) or "").strip()
+    if not auth_config_id:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"No Composio auth config for '{toolkit}'. Create one at app.composio.dev "
+                f"-> Auth Configs, then set COMPOSIO_AUTH_CONFIG_{toolkit.upper()} (the ac_... id) "
+                f"on the backend and redeploy."
+            ),
+        )
     callback = f"{FRONTEND_PUBLIC_URL}/connect-callback?toolkit={toolkit}"
-    logger.info("Composio OAuth toolkit=%s callback_url=%s (FRONTEND_PUBLIC_URL from env)", toolkit, callback)
-    session = composio.create(user_id=entity_id, manage_connections=False)
-    cr = session.authorize(toolkit, callback_url=callback)
+    logger.info("Composio connect toolkit=%s user=%s callback_url=%s", toolkit, entity_id, callback)
+    cr = composio.connected_accounts.link(
+        user_id=entity_id,
+        auth_config_id=auth_config_id,
+        callback_url=callback,
+    )
     return cr.redirect_url, callback
 
 
@@ -80,6 +99,8 @@ async def get_connect_url(toolkit: str, session_id: str = Depends(get_session_id
     try:
         url, callback = _get_connect_url(composio, toolkit, session_id)
         return ConnectUrlResponse(redirect_url=url, toolkit=toolkit, callback_url=callback)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Composio authorize failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

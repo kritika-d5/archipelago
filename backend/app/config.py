@@ -39,3 +39,11 @@ FRONTEND_PUBLIC_URL = (os.getenv("FRONTEND_PUBLIC_URL") or "http://localhost:300
 
 # Composio (optional - for GitHub/Notion/Slack OAuth)
 COMPOSIO_API_KEY = os.getenv("COMPOSIO_API_KEY") or os.getenv("COMPOSIO_EKEY")
+
+# Auth config IDs per toolkit, from app.composio.dev -> Auth Configs (look like "ac_...").
+# Required for the OAuth connect flow (connected_accounts.link). One per integration.
+COMPOSIO_AUTH_CONFIGS = {
+    "github": os.getenv("COMPOSIO_AUTH_CONFIG_GITHUB"),
+    "notion": os.getenv("COMPOSIO_AUTH_CONFIG_NOTION"),
+    "slack": os.getenv("COMPOSIO_AUTH_CONFIG_SLACK"),
+}
