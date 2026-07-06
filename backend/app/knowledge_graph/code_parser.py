@@ -162,14 +162,27 @@ class CodeParser:
                 docstring=module_docstring
             )
             
-            # Track imports
+            # Track imports (display strings) + structured dotted module targets for edge resolution
             imports = []
+            import_targets: List[str] = []
             for node in ast.walk(tree):
                 if isinstance(node, (ast.Import, ast.ImportFrom)):
                     import_str = self._extract_import(node)
                     if import_str:
                         imports.append(import_str)
                         module.imports.append(import_str)
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            if alias.name:
+                                import_targets.append(alias.name)
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.module:
+                            import_targets.append(node.module)
+                            for alias in node.names:
+                                if alias.name:
+                                    import_targets.append(f"{node.module}.{alias.name}")
+            if import_targets:
+                module.metadata['import_targets'] = import_targets
             
             # Parse classes - store agent/workflow info in module metadata temporarily
             agent_info_temp = {}
@@ -498,7 +511,12 @@ class CodeParser:
                 continue
         
         database_schemas_list = list(db_schema_map.values())
-        
+
+        # Resolve dependency targets to real node IDs and add cross-module import edges.
+        # Without this, call/inheritance edges point at non-existent same-file/pathless IDs and
+        # get dropped by the graph builder — which is why the graph looked disconnected.
+        all_dependencies = self._resolve_dependencies(all_elements, all_modules, all_dependencies)
+
         # Build metadata
         repo_name = Path(repo_path).name
         metadata = CodebaseMetadata(
@@ -553,6 +571,87 @@ class CodeParser:
         logger.info(f"Parsing complete: {len(all_elements)} elements, {len(all_dependencies)} dependencies")
         return graph
     
+    def _module_dotted(self, module: Module) -> str:
+        """Dotted import path from a module's file path, e.g. app/core/db.py -> app.core.db."""
+        fp = module.file_path.replace('\\', '/')
+        if fp.endswith('.py'):
+            fp = fp[:-3]
+        if fp.endswith('/__init__'):
+            fp = fp[:-len('/__init__')]
+        return fp.strip('/').replace('/', '.')
+
+    def _match_import_target(self, target: str, dotted_to_module: Dict[str, str]) -> Optional[str]:
+        """Match a dotted import (e.g. 'app.core.db' or 'app.core.db.save') to a module id."""
+        if not target:
+            return None
+        if target in dotted_to_module:
+            return dotted_to_module[target]
+        # from-import of a symbol: drop the trailing symbol and retry the module itself
+        parent = target.rsplit('.', 1)[0]
+        if parent in dotted_to_module:
+            return dotted_to_module[parent]
+        # suffix match to tolerate absolute vs package-relative import paths
+        for dotted, mid in dotted_to_module.items():
+            if dotted.endswith('.' + target) or target.endswith('.' + dotted):
+                return mid
+        return None
+
+    def _resolve_dependencies(self, elements: List[CodeElement], modules: List[Module],
+                              dependencies: List[Dependency]) -> List[Dependency]:
+        """Resolve call/inheritance dependency targets to real element IDs and add cross-module
+        IMPORT edges. Anything that can't be resolved inside this repo (external libs, builtins)
+        is dropped so the graph only contains edges between real nodes."""
+        func_index: Dict[str, str] = {}
+        class_index: Dict[str, str] = {}
+        for e in elements:
+            if e.type == CodeElementType.FUNCTION:
+                func_index.setdefault(e.name, e.id)
+            elif e.type in (CodeElementType.CLASS, CodeElementType.AGENT, CodeElementType.WORKFLOW):
+                class_index.setdefault(e.name, e.id)
+        element_ids = {e.id for e in elements}
+
+        resolved: List[Dependency] = []
+        seen: Set[tuple] = set()
+
+        def add(dep: Dependency):
+            key = (dep.source_id, dep.target_id, dep.dependency_type.value)
+            if dep.source_id != dep.target_id and key not in seen:
+                seen.add(key)
+                resolved.append(dep)
+
+        for dep in dependencies:
+            if dep.target_id in element_ids:
+                add(dep)
+                continue
+            name = dep.target_id.rsplit(':', 1)[-1]
+            if dep.dependency_type == DependencyType.CALL:
+                tid = func_index.get(name)
+                if tid:
+                    dep.target_id = tid
+                    add(dep)
+                # else: call to an external/builtin/undiscovered function — drop
+            elif dep.dependency_type == DependencyType.INHERITANCE:
+                tid = class_index.get(name.split('.')[-1])
+                if tid:
+                    dep.target_id = tid
+                    add(dep)
+                # else: external base class (e.g. BaseModel) — drop
+
+        # Cross-module import edges (only between modules that exist in this repo)
+        dotted_to_module = {self._module_dotted(m): m.id for m in modules}
+        for m in modules:
+            for target in (m.metadata.get('import_targets') or []):
+                tid = self._match_import_target(target, dotted_to_module)
+                if tid:
+                    add(Dependency(
+                        source_id=m.id,
+                        target_id=tid,
+                        dependency_type=DependencyType.IMPORT,
+                        strength=0.6,
+                    ))
+
+        return resolved
+
     def _is_agent_class(self, node: ast.ClassDef, content: str) -> bool:
         """Check if a class is an agent."""
         name_lower = node.name.lower()

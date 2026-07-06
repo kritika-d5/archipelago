@@ -91,7 +91,31 @@ login, the fix is **per-session identity**, not "require auth."
 
 ---
 
+## Phase D — Design system & navigation (NEW, requested 2026-07-06)
+
+Goal: one consistent shell + theme across every page. Current state has **two** layouts — a top
+`.navbar` (App.js) for /, /dashboard, /graph, /health, /architecture and a separate sidebar
+`DashboardLayout` for /hub, /docs, /learning-path — so navigation is inconsistent and the theme
+drifts between pages.
+
+- **D.1** Single nav shell on every route (pick the sidebar `DashboardLayout` or a unified top nav;
+  render it for all authenticated pages, not just the hub set).
+- **D.2** Design tokens: define CSS variables for the palette — **black base, orange accent, white
+  text** — in one place (`design-system.css`) and make every page consume them (no hard-coded
+  colors like the `#d97706` scattered in KnowledgeGraph.jsx).
+- **D.3** Standardize buttons, cards, inputs, headings against the tokens.
+
 ## Phase 1 — Make the graph actually show dependencies
+
+### Graph visualization (frontend, requested 2026-07-06)
+The graph currently renders every node the same flat orange with no interaction (KnowledgeGraph.jsx
+Cytoscape style is a single `node` selector). Once 1.1 gives it real edges + categories:
+- **V.1** Color-code nodes by `category` (module/class/function/agent/workflow/database/api) and
+  style edges by `dependency_type` (call/import/inheritance/db) — using the Phase D tokens.
+- **V.2** Interactivity: click a node to highlight its neighborhood + show a detail panel
+  (uses the existing `/element/{id}` and `/subgraph/{id}` endpoints), hover tooltips, fit/zoom
+  controls, and a legend.
+
 
 This is the "barely shows anything / no dependencies mapped" problem. Root causes are in
 the parser and a split data model.
