@@ -14,8 +14,9 @@ httpcore==1.0.9
 httpx==0.28.1
 idna==3.11
 networkx==3.6.1
-pydantic==2.12.5
-pydantic_core==2.41.5
+pydantic==2.13.4
+# pydantic-core is pinned transitively by pydantic; don't pin it explicitly or it can
+# conflict with pydantic/composio's required core version.
 python-dotenv==1.2.1
 pymongo==4.6.1
 sniffio==1.3.1
