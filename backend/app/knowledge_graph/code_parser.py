@@ -701,8 +701,8 @@ class CodeParser:
                 continue
             base_dir = posixpath.dirname(m.file_path.replace('\\', '/'))
             for spec in specs:
-                resolved = posixpath.normpath(posixpath.join(base_dir, spec))
-                tid = self._match_js_target(resolved, js_index)
+                resolved_path = posixpath.normpath(posixpath.join(base_dir, spec))
+                tid = self._match_js_target(resolved_path, js_index)
                 if tid:
                     add(Dependency(
                         source_id=m.id,
