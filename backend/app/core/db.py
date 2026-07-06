@@ -130,6 +130,19 @@ def get_parsed_data(graph_name, owner_id):
         logger.error(f"Error getting parsed data from MongoDB: {str(e)}")
         raise
 
+def delete_graph(graph_name, owner_id):
+    """Delete an owner's graph + parsed data for a key. Returns True if anything was removed."""
+    if db is None:
+        raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
+    try:
+        r1 = db.graphs.delete_one({"graph_name": graph_name, "owner_id": owner_id})
+        r2 = db.parsed_data.delete_one({"graph_name": graph_name, "owner_id": owner_id})
+        return (r1.deleted_count + r2.deleted_count) > 0
+    except Exception as e:
+        logger.error(f"Error deleting graph from MongoDB: {str(e)}")
+        raise
+
+
 def get_org_learning_metadata(org_key: str, owner_id: str):
     """Get learning metadata (llm_summaries, notion_docs) for an owner's org. None if not found."""
     if db is None:

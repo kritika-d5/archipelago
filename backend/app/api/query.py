@@ -10,7 +10,7 @@ from app.schemas.graph_schema import QueryRequest, QueryResponse, WhatIfRequest,
 from app.core.llm import LLMService
 from app.core.db import get_graph, get_parsed_data
 from app.core.session import get_session_id
-from app.api.parse import parsed_graphs
+from app.api.parse import load_codebase_graph
 
 logger = logging.getLogger(__name__)
 
@@ -95,17 +95,12 @@ async def ask_question(request: QueryRequest, repo_key: str = Query(..., descrip
             response = llm_service.answer_org_query(org_data, request)
             return response
         
-        # Single repository query
-        if repo_key not in parsed_graphs:
+        # Single repository query (reconstructed from MongoDB, scoped to this owner)
+        graph_data = load_codebase_graph(repo_key, session_id)
+        if graph_data is None:
             logger.error(f"Graph not found for key: {repo_key}")
             raise HTTPException(status_code=404, detail=f"Graph not found for key: {repo_key}")
-        
-        graph_data = parsed_graphs[repo_key]["graph"]
-        
-        if graph_data is None:
-            logger.error(f"Graph data is None for key: {repo_key}")
-            raise HTTPException(status_code=400, detail=f"Graph data not available for key: {repo_key}")
-        
+
         logger.info(f"Processing single repository query: {repo_key}")
         response = llm_service.answer_query(graph_data, request)
         return response
@@ -156,17 +151,12 @@ async def what_if_analysis(request: WhatIfRequest, repo_key: str = Query(..., de
             response = llm_service.analyze_org_what_if(org_data, request)
             return response
         
-        # Single repository what-if
-        if repo_key not in parsed_graphs:
+        # Single repository what-if (reconstructed from MongoDB, scoped to this owner)
+        graph_data = load_codebase_graph(repo_key, session_id)
+        if graph_data is None:
             logger.error(f"Graph not found for key: {repo_key}")
             raise HTTPException(status_code=404, detail=f"Graph not found for key: {repo_key}")
-        
-        graph_data = parsed_graphs[repo_key]["graph"]
-        
-        if graph_data is None:
-            logger.error(f"Graph data is None for key: {repo_key}")
-            raise HTTPException(status_code=400, detail=f"Graph data not available for key: {repo_key}")
-        
+
         logger.info(f"Processing single repository what-if analysis: {repo_key}")
         response = llm_service.analyze_what_if(graph_data, request)
         return response

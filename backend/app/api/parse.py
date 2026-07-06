@@ -1,17 +1,48 @@
 import time
 import logging
+from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from typing import Dict, Any
-from app.schemas.graph_schema import ParsingRequest, ParsingResponse
+from typing import Dict, Any, Optional
+from app.schemas.graph_schema import ParsingRequest, ParsingResponse, CodebaseGraph
 from app.knowledge_graph.repo_manager import RepositoryManager
 from app.knowledge_graph.code_parser import CodeParser
-from app.core.db import save_graph, save_parsed_data
+from app.core.db import save_graph, save_parsed_data, get_parsed_data
 from app.core.session import get_session_id
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/parse", tags=["parsing"])
-parsed_graphs: Dict[str, Any] = {}
+
+
+def load_codebase_graph(repo_key: str, owner_id: str) -> Optional[CodebaseGraph]:
+    """Load & reconstruct a single-repo CodebaseGraph for an owner from MongoDB.
+
+    Replaces the old global in-memory `parsed_graphs` cache: graphs are persisted per-owner in
+    the `parsed_data` collection, so lookups are isolated by owner AND survive Render restarts
+    (also closes Phase 2.1). Returns None for org keys (different shape) or when not found.
+    """
+    candidates = []
+    for k in (repo_key, unquote(repo_key)):
+        if k and k not in candidates:
+            candidates.append(k)
+    for key in candidates:
+        try:
+            doc = get_parsed_data(key, owner_id)
+        except Exception as e:
+            logger.warning(f"load_codebase_graph: db error for '{key}': {e}")
+            continue
+        if not doc:
+            continue
+        raw = doc.get("parsed_data")
+        if not isinstance(raw, dict) or "elements" not in raw or "metadata" not in raw:
+            continue  # org data or an unexpected shape — not a CodebaseGraph
+        try:
+            graph = CodebaseGraph.model_validate(raw)
+            graph.build_indexes()
+            return graph
+        except Exception as e:
+            logger.warning(f"load_codebase_graph: reconstruct failed for '{key}': {e}")
+    return None
 
 
 @router.post("/", response_model=ParsingResponse)
@@ -53,15 +84,9 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
             from app.api.organization import analyze_organization
             try:
                 org_result = await analyze_organization(org_name, session_id)
-                
-                # Store organization result in parsed_graphs with org key
+
                 org_key = f"org:{org_name}"
-                parsed_graphs[org_key] = {
-                    "graph": None,  # Organizations don't have single graph
-                    "organization_result": org_result,
-                    "parsed_at": datetime.now()
-                }
-                
+
                 # MongoDB is already saved in analyze_organization, but ensure the data structure is correct
                 # Save with graph_data field for consistency with /visualize endpoint
                 try:
@@ -119,15 +144,8 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
         )
         
         graph_key = f"{request.repository_url}:{branch or 'main'}"
-        parsed_graphs[graph_key] = {
-            "graph": graph,
-            "repo_path": str(repo_path),
-            "parsed_at": graph.metadata.parsed_at
-        }
-        
-        logger.info(f"Graph stored with key: {graph_key}")
-        logger.info(f"Available keys: {list(parsed_graphs.keys())}")
-        
+        logger.info(f"Graph parsed with key: {graph_key}")
+
         # Save UI-ready graph data to 'graphs' collection
         try:
             graph_json = graph.model_dump(mode='json')
@@ -168,101 +186,53 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
 @router.get("/")
 async def list_parsed_graphs(session_id: str = Depends(get_session_id)):
     from app.core.db import get_all_graphs
-    
+
     graphs_list = []
-    
-    # Add in-memory graphs
-    for key, data in parsed_graphs.items():
-        # Skip organization entries (they have graph=None) - they're handled by MongoDB
-        if data.get("graph") is None:
-            continue
-        graphs_list.append({
-            "key": key,
-            "repository": data["graph"].metadata.repository_name,
-            "parsed_at": data["parsed_at"]
-        })
-    
-    # Add organization graphs from in-memory parsed_graphs
-    for key, data in parsed_graphs.items():
-        if key.startswith("org:") and data.get("organization_result"):
-            org_name = key.replace("org:", "")
+    try:
+        for doc in get_all_graphs(session_id):
+            key = doc.get("graph_name", "")
+            if not key:
+                continue
+            ts = doc.get("timestamp", datetime.now())
+            if key.startswith("org:"):
+                repository = f"Organization: {key[len('org:'):]}"
+            else:
+                # Friendly repo name from the key (…/name.git:branch)
+                base = key.rsplit(":", 1)[0]
+                repository = base.rstrip("/").split("/")[-1].replace(".git", "") or key
             graphs_list.append({
                 "key": key,
-                "repository": f"Organization: {org_name}",
-                "parsed_at": data["parsed_at"].isoformat() if hasattr(data["parsed_at"], 'isoformat') else str(data["parsed_at"])
+                "repository": repository,
+                "parsed_at": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
             })
-    
-    # Also add organization graphs from MongoDB
-    try:
-        mongo_graphs = get_all_graphs(session_id)
-        for graph_doc in mongo_graphs:
-            graph_name = graph_doc.get("graph_name", "")
-            if graph_name.startswith("org:"):
-                # Check if already added from in-memory
-                if not any(g["key"] == graph_name for g in graphs_list):
-                    # Organization graph
-                    org_name = graph_name.replace("org:", "")
-                    timestamp = graph_doc.get("timestamp", datetime.now())
-                    
-                    graphs_list.append({
-                        "key": graph_name,
-                        "repository": f"Organization: {org_name}",
-                        "parsed_at": timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp)
-                    })
-                    logger.info(f"Added organization graph from MongoDB: {graph_name}")
     except Exception as e:
-        logger.warning(f"Error fetching graphs from MongoDB: {str(e)}")
-    
+        logger.warning(f"Error listing graphs from MongoDB: {str(e)}")
+
     return {"graphs": graphs_list}
 
 
 @router.get("/{repo_key:path}")
-async def get_parsed_graph(repo_key: str):
-    from urllib.parse import unquote
-    decoded_key = unquote(repo_key)
-    actual_key = decoded_key if decoded_key in parsed_graphs else (repo_key if repo_key in parsed_graphs else None)
-    
-    if actual_key is None:
-        for key in parsed_graphs.keys():
-            if key == decoded_key or key == repo_key:
-                actual_key = key
-                break
-    
-    if actual_key is None or actual_key not in parsed_graphs:
+async def get_parsed_graph(repo_key: str, session_id: str = Depends(get_session_id)):
+    graph = load_codebase_graph(repo_key, session_id)
+    if graph is None:
         raise HTTPException(status_code=404, detail="Graph not found")
-    
-    return {
-        "graph": parsed_graphs[actual_key]["graph"],
-        "parsed_at": parsed_graphs[actual_key]["parsed_at"]
-    }
+    return {"graph": graph, "parsed_at": graph.metadata.parsed_at}
 
 
 @router.get("/{repo_key:path}/json")
-async def get_parsed_graph_json(repo_key: str):
-    from urllib.parse import unquote
+async def get_parsed_graph_json(repo_key: str, session_id: str = Depends(get_session_id)):
     from fastapi.responses import JSONResponse
-    decoded_key = unquote(repo_key)
-    actual_key = decoded_key if decoded_key in parsed_graphs else (repo_key if repo_key in parsed_graphs else None)
-    
-    if actual_key is None:
-        for key in parsed_graphs.keys():
-            if key == decoded_key or key == repo_key:
-                actual_key = key
-                break
-    
-    if actual_key is None or actual_key not in parsed_graphs:
-        logger.error(f"Graph not found. Requested: {decoded_key}. Available: {list(parsed_graphs.keys())}")
-        raise HTTPException(status_code=404, detail=f"Graph not found. Available keys: {list(parsed_graphs.keys())}")
-    
-    graph = parsed_graphs[actual_key]["graph"]
+    graph = load_codebase_graph(repo_key, session_id)
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Graph not found")
     return JSONResponse(content=graph.model_dump(mode='json'))
 
 
-@router.delete("/{repo_key}")
-async def delete_parsed_graph(repo_key: str):
-    """Delete a parsed graph."""
-    if repo_key not in parsed_graphs:
+@router.delete("/{repo_key:path}")
+async def delete_parsed_graph(repo_key: str, session_id: str = Depends(get_session_id)):
+    """Delete this owner's parsed graph (graph + parsed data)."""
+    from app.core.db import delete_graph
+    deleted = delete_graph(unquote(repo_key), session_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Graph not found")
-    
-    del parsed_graphs[repo_key]
     return {"message": "Graph deleted successfully"}

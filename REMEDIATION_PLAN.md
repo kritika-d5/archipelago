@@ -16,17 +16,27 @@ Design constraints (from product owner):
 > **Status:**
 > - 0.1 ✅ DONE (2026-07-06) — per-session `X-Session-Id` identity; Composio entity is now
 >   per-session via `connected_accounts.link()` (switched off the Tool Router flow that a
->   scoped key can't use); `composio==0.17.1` / `pydantic==2.13.4` pinned.
+>   scoped key can't use); `composio==0.17.1` / `pydantic==2.13.4` pinned. Connect flow is
+>   idempotent (reuses the active connection; non-mutating `/status/{toolkit}` probe replaces
+>   the page-load `connect-url` call that was stacking duplicate accounts); `tools.execute`
+>   targets a specific `connected_account_id` so listing works with >1 connection. Requires a
+>   write-scoped project key + per-toolkit `COMPOSIO_AUTH_CONFIG_*` env vars.
 > - 0.2a ✅ DONE (2026-07-06) — Mongo `graphs` / `parsed_data` / `org_learning_metadata`
 >   documents carry `owner_id` (= session id); every read/write in db.py filters by it, and
 >   `session_id` is threaded through parse, graph, organization, architecture, query,
 >   learning_path. Health endpoint (0.3) folded in: graph scan is now per-owner and only runs
 >   when a valid session is present; stopped leaking Mongo collection names.
->   - **Caveats / follow-ups:** (a) single-repo graphs still live in the global in-memory
->     `parsed_graphs` dict → **0.2b / Phase 2.1** (move to Mongo). (b) Data written before 0.2a
->     has no `owner_id` and is now invisible (safe to purge). (c) `timeline` (webhook events)
->     intentionally NOT session-scoped yet — separate pass.
-> - Remaining: 0.2b, 0.4, 0.5.
+>   - **Caveats / follow-ups:** (a) Data written before 0.2a has no `owner_id` and is now
+>     invisible (safe to purge). (b) `timeline` (webhook events) intentionally NOT session-scoped
+>     yet — separate pass.
+> - 0.2b ✅ DONE (2026-07-06) — removed the global in-memory `parsed_graphs` dict entirely.
+>   Single-repo graphs are now reconstructed on demand from the per-owner `parsed_data`
+>   collection via `load_codebase_graph(repo_key, owner_id)` (CodebaseGraph round-trips through
+>   Mongo since its indexes are model fields). This isolates single-repo graphs per owner AND
+>   makes them survive Render restarts / multiple workers — **also closes Phase 2.1's durability
+>   gap** for graph state. Threaded through graph.py (visualize, element, file, impact, explain,
+>   subgraph), query.py (ask, what-if), and parse.py (list/get/json/delete + scoped `delete_graph`).
+> - Remaining: 0.4 (validate clone URLs), 0.5 (error leakage), Phase 2.2 (background parse job).
 
 The app is currently an open proxy to whatever GitHub/Notion account is connected, and
 the health endpoint exposes every user's data. Because connecting must work *without*

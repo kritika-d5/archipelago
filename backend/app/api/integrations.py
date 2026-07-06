@@ -39,13 +39,14 @@ def get_composio():
             api_key=COMPOSIO_API_KEY,
             toolkit_versions={"github": "20260217_00", "notion": "20260217_00"}
         )
-        # Diagnostic: confirm which key/SDK the RUNNING service actually loaded. Compare the
-        # masked fingerprint here against the key you validate with curl. Safe to leave in.
+        # Masked diagnostic (debug-level): which key/SDK the running service loaded. Compare
+        # the masked fingerprint against the key you validate with curl. Raise LOG_LEVEL=DEBUG
+        # to see it; quiet by default.
         base_url = (
             getattr(client, "base_url", None)
             or getattr(getattr(client, "client", None), "base_url", None)
         )
-        logger.info(
+        logger.debug(
             "Composio init: sdk=%s key=%s base_url=%s",
             getattr(_composio_pkg, "__version__", "?"),
             _masked_key(COMPOSIO_API_KEY),
