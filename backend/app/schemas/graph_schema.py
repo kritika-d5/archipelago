@@ -308,6 +308,7 @@ class ParsingResponse(BaseModel):
     """Response model for parsing operation."""
     success: bool = Field(..., description="Whether parsing was successful")
     graph: Optional[CodebaseGraph] = Field(None, description="Parsed codebase graph")
+    graph_key: Optional[str] = Field(None, description="Storage key to open this graph (repo:branch or org:name)")
     error: Optional[str] = Field(None, description="Error message if parsing failed")
     parsing_time: float = Field(..., description="Time taken to parse in seconds")
     files_parsed: int = Field(..., description="Number of files parsed")

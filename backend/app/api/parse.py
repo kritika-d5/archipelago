@@ -110,6 +110,7 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
                 return ParsingResponse(
                     success=True,
                     graph=None,
+                    graph_key=org_key,
                     parsing_time=parsing_time,
                     files_parsed=org_result.get("summary", {}).get("total_repos", 0)
                 )
@@ -168,6 +169,7 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
         return ParsingResponse(
             success=True,
             graph=graph,
+            graph_key=graph_key,
             parsing_time=parsing_time,
             files_parsed=graph.metadata.total_files
         )

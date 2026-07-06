@@ -123,9 +123,12 @@ function ConnectGitHub() {
           include_tests: true,
           include_vendor: false,
         });
-        if (data.success && data.graph) {
-          lastRepoKey = `${repo.clone_url || repo.full_name}:main`;
+        if (data.success) {
+          // Use the key the backend actually stored (real default branch), not an assumed :main.
+          lastRepoKey = data.graph_key || `${repo.clone_url || repo.full_name}:main`;
           setLastParsedKey(lastRepoKey);
+        } else {
+          setError(data.error || `Failed to parse ${repo.full_name}`);
         }
       } catch (err) {
         setError(err.response?.data?.detail || `Failed to parse ${repo.full_name}`);
@@ -140,8 +143,10 @@ function ConnectGitHub() {
           include_vendor: false,
         });
         if (data.success) {
-          lastRepoKey = `org:${org.login}`;
+          lastRepoKey = data.graph_key || `org:${org.login}`;
           setLastParsedKey(lastRepoKey);
+        } else {
+          setError(data.error || `Failed to parse org ${org.login}`);
         }
       } catch (err) {
         setError(err.response?.data?.detail || `Failed to parse org ${org.login}`);
