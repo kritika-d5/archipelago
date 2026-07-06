@@ -1,13 +1,12 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.config import COMPOSIO_API_KEY, FRONTEND_PUBLIC_URL
+from app.core.session import get_session_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
-
-COMPOSIO_ENTITY_ID = "archipelago_default"
 
 
 class ConnectUrlResponse(BaseModel):
@@ -36,16 +35,16 @@ def get_composio():
         return None
 
 
-def _get_connect_url(composio, toolkit):
+def _get_connect_url(composio, toolkit, entity_id):
     callback = f"{FRONTEND_PUBLIC_URL}/connect-callback?toolkit={toolkit}"
     logger.info("Composio OAuth toolkit=%s callback_url=%s (FRONTEND_PUBLIC_URL from env)", toolkit, callback)
-    session = composio.create(user_id=COMPOSIO_ENTITY_ID, manage_connections=False)
+    session = composio.create(user_id=entity_id, manage_connections=False)
     cr = session.authorize(toolkit, callback_url=callback)
     return cr.redirect_url, callback
 
 
 @router.get("/connect-url/{toolkit}")
-async def get_connect_url(toolkit: str) -> ConnectUrlResponse:
+async def get_connect_url(toolkit: str, session_id: str = Depends(get_session_id)) -> ConnectUrlResponse:
     toolkit = toolkit.lower()
     if toolkit not in ("github", "notion", "slack"):
         raise HTTPException(status_code=400, detail="Invalid toolkit")
@@ -56,17 +55,17 @@ async def get_connect_url(toolkit: str) -> ConnectUrlResponse:
             detail="Composio not configured. Add COMPOSIO_API_KEY to backend/.env and restart the server. Get a key at composio.dev"
         )
     try:
-        url, callback = _get_connect_url(composio, toolkit)
+        url, callback = _get_connect_url(composio, toolkit, session_id)
         return ConnectUrlResponse(redirect_url=url, toolkit=toolkit, callback_url=callback)
     except Exception as e:
         logger.error(f"Composio authorize failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _execute_tool(composio, slug, arguments):
+def _execute_tool(composio, slug, arguments, entity_id):
     try:
         return composio.tools.execute(
-            user_id=COMPOSIO_ENTITY_ID,
+            user_id=entity_id,
             slug=slug,
             arguments=arguments or {},
         )
@@ -75,7 +74,7 @@ def _execute_tool(composio, slug, arguments):
 
 
 @router.get("/github/repos")
-async def list_github_repos():
+async def list_github_repos(session_id: str = Depends(get_session_id)):
     composio = get_composio()
     if not composio:
         raise HTTPException(status_code=503, detail="Composio not configured")
@@ -84,6 +83,7 @@ async def list_github_repos():
             composio,
             "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER",
             {"per_page": 100, "sort": "updated"},
+            session_id,
         )
         data = result.get("data", result) if isinstance(result, dict) else result
         items = data if isinstance(data, list) else (data.get("repositories", []) if isinstance(data, dict) else [])
@@ -121,7 +121,7 @@ def _normalize_org_list(items: list) -> list:
 
 
 @router.get("/github/orgs")
-async def list_github_orgs():
+async def list_github_orgs(session_id: str = Depends(get_session_id)):
     composio = get_composio()
     if not composio:
         raise HTTPException(status_code=503, detail="Composio not configured")
@@ -131,6 +131,7 @@ async def list_github_orgs():
             composio,
             "GITHUB_LIST_ORGANIZATIONS_FOR_THE_AUTHENTICATED_USER",
             {},
+            session_id,
         )
         logger.info(f"Composio orgs raw keys: {list(result.keys()) if isinstance(result, dict) else type(result).__name__}")
         data = result.get("data", result) if isinstance(result, dict) else result
@@ -156,6 +157,7 @@ async def list_github_orgs():
                 composio,
                 "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER",
                 {"per_page": 100, "sort": "updated"},
+                session_id,
             )
             data = repos_res.get("data", repos_res) if isinstance(repos_res, dict) else repos_res
             repos = data if isinstance(data, list) else (data.get("repositories", []) or data.get("data", []) if isinstance(data, dict) else [])
@@ -181,7 +183,7 @@ async def list_github_orgs():
 
 
 @router.get("/notion/pages")
-async def list_notion_pages(query: str = ""):
+async def list_notion_pages(query: str = "", session_id: str = Depends(get_session_id)):
     composio = get_composio()
     if not composio:
         raise HTTPException(status_code=503, detail="Composio not configured")
@@ -190,6 +192,7 @@ async def list_notion_pages(query: str = ""):
             composio,
             "NOTION_FETCH_DATA",
             {"query": query, "fetch_type": "pages", "page_size": 50} if query else {"fetch_type": "pages", "page_size": 50},
+            session_id,
         )
         data = result.get("data", result) if isinstance(result, dict) else result
         items = data if isinstance(data, list) else (data.get("results", []) or data.get("pages", []) or data.get("data", []) if isinstance(data, dict) else [])
@@ -216,7 +219,7 @@ async def list_notion_pages(query: str = ""):
 
 
 @router.get("/notion/page/{page_id:path}")
-async def get_notion_page_content(page_id: str):
+async def get_notion_page_content(page_id: str, session_id: str = Depends(get_session_id)):
     composio = get_composio()
     if not composio:
         raise HTTPException(status_code=503, detail="Composio not configured")
@@ -225,6 +228,7 @@ async def get_notion_page_content(page_id: str):
             composio,
             "NOTION_FETCH_ALL_BLOCK_CONTENTS",
             {"block_id": page_id, "recursive": True, "max_depth": 5},
+            session_id,
         )
         data = result.get("data", result) if isinstance(result, dict) else result
         blocks = data if isinstance(data, list) else (data.get("results", []) or data.get("blocks", []) or data.get("children", []) if isinstance(data, dict) else [])
@@ -268,7 +272,7 @@ class NotionUpdateRequest(BaseModel):
 
 
 @router.post("/notion/update")
-async def update_notion_page(request: NotionUpdateRequest):
+async def update_notion_page(request: NotionUpdateRequest, session_id: str = Depends(get_session_id)):
     """
     Apply a documentation suggestion to a Notion page.
     
@@ -293,6 +297,7 @@ async def update_notion_page(request: NotionUpdateRequest):
             composio,
             "NOTION_FETCH_ALL_BLOCK_CONTENTS",
             {"block_id": request.page_id, "recursive": True, "max_depth": 5},
+            session_id,
         )
         
         data = page_content_result.get("data", page_content_result) if isinstance(page_content_result, dict) else page_content_result
@@ -341,6 +346,7 @@ async def update_notion_page(request: NotionUpdateRequest):
                                 }
                             ]
                         },
+                        session_id,
                     )
                     logger.info(f"Inserted updated content after block {target_block_id} in Notion page: {request.page_id}")
                     return {
@@ -392,6 +398,7 @@ async def update_notion_page(request: NotionUpdateRequest):
                     }
                 ]
             },
+            session_id,
         )
         
         action = "inserted" if request.suggestion_type == "add" else "added"
