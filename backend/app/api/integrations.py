@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -10,8 +11,9 @@ router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 
 class ConnectUrlResponse(BaseModel):
-    redirect_url: str
+    redirect_url: Optional[str] = None  # None when already connected (no OAuth needed)
     toolkit: str
+    connected: bool = False  # True if this user already has an active connection
     callback_url: str = Field(
         description="Post-OAuth redirect we requested; should be your Vercel /connect-callback, not localhost."
     )
@@ -58,13 +60,8 @@ def get_composio():
         return None
 
 
-def _get_connect_url(composio, toolkit, entity_id):
-    """Start an OAuth connection for this user via the standard connected_accounts flow.
-
-    Uses connected_accounts.link (not the Tool Router `create()`/`authorize()` path, which
-    requires Tool Router enrollment a standard project key doesn't have). Needs a per-toolkit
-    auth_config_id from the Composio dashboard.
-    """
+def _auth_config_for(toolkit: str) -> str:
+    """Resolve the configured auth_config_id for a toolkit, or raise a helpful 503."""
     auth_config_id = (COMPOSIO_AUTH_CONFIGS.get(toolkit) or "").strip()
     if not auth_config_id:
         raise HTTPException(
@@ -75,14 +72,48 @@ def _get_connect_url(composio, toolkit, entity_id):
                 f"on the backend and redeploy."
             ),
         )
+    return auth_config_id
+
+
+def _active_connections(composio, entity_id, auth_config_id):
+    """Return this user's ACTIVE connected accounts for an auth config (empty list on error)."""
+    try:
+        res = composio.connected_accounts.list(
+            user_ids=[entity_id],
+            auth_config_ids=[auth_config_id],
+            statuses=["ACTIVE"],
+        )
+    except Exception as e:
+        logger.warning("connected_accounts.list failed for user=%s: %s", entity_id, e)
+        return []
+    items = getattr(res, "items", None)
+    if items is None and isinstance(res, dict):
+        items = res.get("items") or res.get("data") or []
+    return list(items or [])
+
+
+def _get_connect_url(composio, toolkit, entity_id):
+    """Idempotently start an OAuth connection for this user.
+
+    If the user already has an ACTIVE connection for this toolkit we reuse it and return
+    (None, callback, connected=True) so we never stack duplicate accounts (which then make
+    tool execution ambiguous). Otherwise we create a new link via connected_accounts.link.
+    """
+    auth_config_id = _auth_config_for(toolkit)
     callback = f"{FRONTEND_PUBLIC_URL}/connect-callback?toolkit={toolkit}"
+
+    active = _active_connections(composio, entity_id, auth_config_id)
+    if active:
+        logger.info("Reusing existing active %s connection for user=%s (count=%d)", toolkit, entity_id, len(active))
+        return None, callback, True
+
     logger.info("Composio connect toolkit=%s user=%s callback_url=%s", toolkit, entity_id, callback)
     cr = composio.connected_accounts.link(
         user_id=entity_id,
         auth_config_id=auth_config_id,
         callback_url=callback,
     )
-    return cr.redirect_url, callback
+    return cr.redirect_url, callback, False
 
 
 @router.get("/connect-url/{toolkit}")
@@ -97,13 +128,30 @@ async def get_connect_url(toolkit: str, session_id: str = Depends(get_session_id
             detail="Composio not configured. Add COMPOSIO_API_KEY to backend/.env and restart the server. Get a key at composio.dev"
         )
     try:
-        url, callback = _get_connect_url(composio, toolkit, session_id)
-        return ConnectUrlResponse(redirect_url=url, toolkit=toolkit, callback_url=callback)
+        url, callback, connected = _get_connect_url(composio, toolkit, session_id)
+        return ConnectUrlResponse(redirect_url=url, toolkit=toolkit, callback_url=callback, connected=connected)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Composio authorize failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status/{toolkit}")
+async def get_connection_status(toolkit: str, session_id: str = Depends(get_session_id)):
+    """Non-mutating check: is Composio configured, and does this user already have an active
+    connection for the toolkit? Safe to call on page load (never creates a connection)."""
+    toolkit = toolkit.lower()
+    if toolkit not in ("github", "notion", "slack"):
+        raise HTTPException(status_code=400, detail="Invalid toolkit")
+    composio = get_composio()
+    if not composio:
+        return {"configured": False, "connected": False}
+    auth_config_id = (COMPOSIO_AUTH_CONFIGS.get(toolkit) or "").strip()
+    if not auth_config_id:
+        return {"configured": False, "connected": False}
+    active = _active_connections(composio, session_id, auth_config_id)
+    return {"configured": True, "connected": bool(active)}
 
 
 def _execute_tool(composio, slug, arguments, entity_id):

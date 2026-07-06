@@ -20,13 +20,16 @@ function ConnectGitHub() {
   const [error, setError] = useState(null);
 
   const checkComposio = useCallback(async () => {
+    // Non-mutating status probe — must NOT create a connection on page load.
     try {
-      const { data } = await api.get('/api/integrations/connect-url/github');
-      setComposioAvailable(true);
-      return data.redirect_url;
+      const { data } = await api.get('/api/integrations/status/github');
+      setComposioAvailable(!!data.configured);
+      if (data.connected) {
+        // Already connected in a previous visit — go straight to repo selection.
+        loadReposAndOrgs();
+      }
     } catch (err) {
       setComposioAvailable(false);
-      return null;
     }
   }, []);
 
@@ -51,16 +54,20 @@ function ConnectGitHub() {
 
   const openConnectPopup = async () => {
     setError(null);
-    let url;
+    let data;
     try {
-      const { data } = await api.get('/api/integrations/connect-url/github');
-      url = data.redirect_url;
+      ({ data } = await api.get('/api/integrations/connect-url/github'));
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to get connect URL');
       return;
     }
+    // Already connected (backend reused the existing account) — skip OAuth, load repos.
+    if (data.connected || !data.redirect_url) {
+      loadReposAndOrgs();
+      return;
+    }
     setConnecting(true);
-    const w = window.open(url, 'composio-github', 'width=600,height=700,scrollbars=yes');
+    const w = window.open(data.redirect_url, 'composio-github', 'width=600,height=700,scrollbars=yes');
     const iv = setInterval(() => {
       if (w?.closed) {
         clearInterval(iv);
@@ -166,9 +173,12 @@ function ConnectGitHub() {
   const handleConnectNotion = async () => {
     try {
       const { data } = await api.get('/api/integrations/connect-url/notion');
-      if (data?.redirect_url) {
-        window.open(data.redirect_url, 'composio-notion', 'width=600,height=700');
+      if (data?.connected || !data?.redirect_url) {
+        // Already connected — just load pages.
+        loadNotionPages();
+        return;
       }
+      window.open(data.redirect_url, 'composio-notion', 'width=600,height=700');
     } catch (_) {}
   };
 
