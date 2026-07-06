@@ -40,53 +40,58 @@ try:
 except Exception as e:
     logger.warning(f"MongoDB initialization failed: {str(e)}. Database operations will fail until connection is established.")
 
-def save_graph(graph_name, graph_dict, timestamp=None):
-    """Saves only the UI-ready graph data."""
+def save_graph(graph_name, graph_dict, owner_id, timestamp=None):
+    """Saves only the UI-ready graph data, scoped to an owner (session/user).
+
+    Documents are keyed by (owner_id, graph_name) so two users analyzing the same
+    repo/org get separate documents and never overwrite each other.
+    """
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
-    
+
     try:
         update_data = {
             "graph_name": graph_name,  # Ensure graph_name is in the document
+            "owner_id": owner_id,
             "graph_data": graph_dict,
             "timestamp": timestamp or datetime.now()
         }
         result = db.graphs.update_one(
-            {"graph_name": graph_name},
+            {"graph_name": graph_name, "owner_id": owner_id},
             {"$set": update_data},
             upsert=True
         )
-        logger.info(f"Graph '{graph_name}' saved to MongoDB (upserted: {result.upserted_id is not None})")
+        logger.info(f"Graph '{graph_name}' saved to MongoDB for owner={owner_id} (upserted: {result.upserted_id is not None})")
         return result.upserted_id or result.modified_count
     except Exception as e:
         logger.error(f"Error saving graph to MongoDB: {str(e)}")
         raise
 
 
-def save_parsed_data(graph_name, parsed_json):
-    """Saves the raw structural data in a separate collection."""
+def save_parsed_data(graph_name, parsed_json, owner_id):
+    """Saves the raw structural data in a separate collection, scoped to an owner."""
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
-    
+
     try:
         result = db.parsed_data.update_one(
-            {"graph_name": graph_name},
-            {"$set": {"parsed_data": parsed_json, "graph_name": graph_name}},
+            {"graph_name": graph_name, "owner_id": owner_id},
+            {"$set": {"parsed_data": parsed_json, "graph_name": graph_name, "owner_id": owner_id}},
             upsert=True
         )
-        logger.info(f"Parsed data '{graph_name}' saved to MongoDB (upserted: {result.upserted_id is not None})")
+        logger.info(f"Parsed data '{graph_name}' saved to MongoDB for owner={owner_id} (upserted: {result.upserted_id is not None})")
         return result.upserted_id or result.modified_count
     except Exception as e:
         logger.error(f"Error saving parsed data to MongoDB: {str(e)}")
         raise
 
-def get_graph(graph_name):
-    """Get graph from MongoDB by name."""
+def get_graph(graph_name, owner_id):
+    """Get an owner's graph from MongoDB by name. Returns None if not owned by this owner."""
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
-    
+
     try:
-        result = db.graphs.find_one({"graph_name": graph_name})
+        result = db.graphs.find_one({"graph_name": graph_name, "owner_id": owner_id})
         # Convert MongoDB ObjectId to string for JSON serialization
         if result:
             result["_id"] = str(result["_id"])
@@ -95,13 +100,13 @@ def get_graph(graph_name):
         logger.error(f"Error getting graph from MongoDB: {str(e)}")
         raise
 
-def get_all_graphs():
-    """Get all graphs from MongoDB."""
+def get_all_graphs(owner_id):
+    """Get all graphs belonging to a single owner from MongoDB."""
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
-    
+
     try:
-        results = list(db.graphs.find({}))
+        results = list(db.graphs.find({"owner_id": owner_id}))
         # Convert all ObjectIds to strings for JSON serialization
         for result in results:
             result["_id"] = str(result["_id"])
@@ -110,13 +115,13 @@ def get_all_graphs():
         logger.error(f"Error getting all graphs from MongoDB: {str(e)}")
         raise
 
-def get_parsed_data(graph_name):
-    """Get parsed data from MongoDB by name."""
+def get_parsed_data(graph_name, owner_id):
+    """Get an owner's parsed data from MongoDB by name."""
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
-    
+
     try:
-        result = db.parsed_data.find_one({"graph_name": graph_name})
+        result = db.parsed_data.find_one({"graph_name": graph_name, "owner_id": owner_id})
         # Convert MongoDB ObjectId to string for JSON serialization
         if result:
             result["_id"] = str(result["_id"])
@@ -125,12 +130,12 @@ def get_parsed_data(graph_name):
         logger.error(f"Error getting parsed data from MongoDB: {str(e)}")
         raise
 
-def get_org_learning_metadata(org_key: str):
-    """Get learning metadata (llm_summaries, notion_docs) for an org. Returns None if not found."""
+def get_org_learning_metadata(org_key: str, owner_id: str):
+    """Get learning metadata (llm_summaries, notion_docs) for an owner's org. None if not found."""
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
     try:
-        result = db.org_learning_metadata.find_one({"org_key": org_key})
+        result = db.org_learning_metadata.find_one({"org_key": org_key, "owner_id": owner_id})
         if result:
             result["_id"] = str(result["_id"])
         return result
@@ -139,18 +144,18 @@ def get_org_learning_metadata(org_key: str):
         raise
 
 
-def save_org_learning_metadata(org_key: str, llm_summaries: dict = None, notion_docs: str = ""):
-    """Save or update learning metadata for an org."""
+def save_org_learning_metadata(org_key: str, owner_id: str, llm_summaries: dict = None, notion_docs: str = ""):
+    """Save or update learning metadata for an owner's org."""
     if db is None:
         raise ConnectionError("MongoDB connection not initialized. Check MONGO_URI in .env file.")
     try:
-        update = {"org_key": org_key}
+        update = {"org_key": org_key, "owner_id": owner_id}
         if llm_summaries is not None:
             update["llm_summaries"] = llm_summaries
         if notion_docs is not None:
             update["notion_docs"] = notion_docs
         result = db.org_learning_metadata.update_one(
-            {"org_key": org_key},
+            {"org_key": org_key, "owner_id": owner_id},
             {"$set": update},
             upsert=True,
         )

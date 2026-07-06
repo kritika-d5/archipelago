@@ -13,6 +13,21 @@ Design constraints (from product owner):
 
 ## Phase 0 — Stop the data leak (do before anything else)
 
+> **Status:**
+> - 0.1 ✅ DONE (2026-07-06) — per-session `X-Session-Id` identity; Composio entity is now
+>   per-session via `connected_accounts.link()` (switched off the Tool Router flow that a
+>   scoped key can't use); `composio==0.17.1` / `pydantic==2.13.4` pinned.
+> - 0.2a ✅ DONE (2026-07-06) — Mongo `graphs` / `parsed_data` / `org_learning_metadata`
+>   documents carry `owner_id` (= session id); every read/write in db.py filters by it, and
+>   `session_id` is threaded through parse, graph, organization, architecture, query,
+>   learning_path. Health endpoint (0.3) folded in: graph scan is now per-owner and only runs
+>   when a valid session is present; stopped leaking Mongo collection names.
+>   - **Caveats / follow-ups:** (a) single-repo graphs still live in the global in-memory
+>     `parsed_graphs` dict → **0.2b / Phase 2.1** (move to Mongo). (b) Data written before 0.2a
+>     has no `owner_id` and is now invisible (safe to purge). (c) `timeline` (webhook events)
+>     intentionally NOT session-scoped yet — separate pass.
+> - Remaining: 0.2b, 0.4, 0.5.
+
 The app is currently an open proxy to whatever GitHub/Notion account is connected, and
 the health endpoint exposes every user's data. Because connecting must work *without*
 login, the fix is **per-session identity**, not "require auth."

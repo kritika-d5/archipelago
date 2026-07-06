@@ -2,7 +2,7 @@
 API endpoints for GitHub organization-level analysis.
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any, Optional
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from app.knowledge_graph.github_org_discovery import GitHubOrgDiscovery
 from app.knowledge_graph.enhanced_parser import EnhancedParser
 from app.knowledge_graph.cross_repo_dependency_engine import CrossRepoDependencyEngine
 from app.core.db import save_graph, save_parsed_data
+from app.core.session import get_session_id
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/api/organization", tags=["organization"])
 
 
 @router.post("/analyze")
-async def analyze_organization(org_name: str) -> Dict[str, Any]:
+async def analyze_organization(org_name: str, session_id: str = Depends(get_session_id)) -> Dict[str, Any]:
     """
     Analyze a GitHub organization and build cross-repo dependency graph.
     
@@ -68,8 +69,8 @@ async def analyze_organization(org_name: str) -> Dict[str, Any]:
         org_key = f"org:{org_name}"
         try:
             # Save individual repo data
-            save_parsed_data(org_key, repos_data)
-            
+            save_parsed_data(org_key, repos_data, session_id)
+
             # Save dependency graph
             graph_data = {
                 "nodes": dependency_graph["nodes"],
@@ -77,7 +78,7 @@ async def analyze_organization(org_name: str) -> Dict[str, Any]:
                 "violations": dependency_graph["violations"],
                 "statistics": dependency_graph["statistics"]
             }
-            save_graph(org_key, graph_data, timestamp=datetime.now())
+            save_graph(org_key, graph_data, session_id, timestamp=datetime.now())
             logger.info(f"Saved organization analysis to MongoDB: {org_key}")
         except Exception as e:
             logger.error(f"Failed to save to MongoDB: {str(e)}")

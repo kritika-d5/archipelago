@@ -5,11 +5,12 @@ GET /api/org/{org_id}/flows
 POST /api/org/{org_id}/chat
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 from app.core.db import get_graph, get_parsed_data, get_org_learning_metadata, save_org_learning_metadata
+from app.core.session import get_session_id
 from app.services.graph_service import get_main_flow_highlight
 from app.services.flow_service import get_major_flows
 from app.services.learning_path_service import compute_learning_path
@@ -26,10 +27,10 @@ def _org_key(org_id: str) -> str:
     return f"org:{org_id}"
 
 
-def _load_org_data(org_id: str) -> tuple:
+def _load_org_data(org_id: str, owner_id: str) -> tuple:
     org_key = _org_key(org_id)
-    graph_doc = get_graph(org_key)
-    parsed_doc = get_parsed_data(org_key)
+    graph_doc = get_graph(org_key, owner_id)
+    parsed_doc = get_parsed_data(org_key, owner_id)
     if not graph_doc or not graph_doc.get("graph_data"):
         raise HTTPException(status_code=404, detail=f"Organization graph not found: {org_id}")
     if not parsed_doc or not parsed_doc.get("parsed_data"):
@@ -42,12 +43,12 @@ def _load_org_data(org_id: str) -> tuple:
 
 
 @router.get("/{org_id}/learning-path")
-async def get_learning_path(org_id: str) -> Dict[str, Any]:
+async def get_learning_path(org_id: str, session_id: str = Depends(get_session_id)) -> Dict[str, Any]:
     """
     Returns learning path (topological order + service details), system overview summary,
     main flow highlight path, and graph/metadata for the frontend.
     """
-    global_graph, repo_data, violations, org_key = _load_org_data(org_id)
+    global_graph, repo_data, violations, org_key = _load_org_data(org_id, session_id)
 
     # Learning path (pure graph)
     path_result = compute_learning_path(global_graph, repo_data, violations)
@@ -57,7 +58,7 @@ async def get_learning_path(org_id: str) -> Dict[str, Any]:
 
     # Optional: LLM system overview (cache in org_learning_metadata)
     llm_summary_text = None
-    meta = get_org_learning_metadata(org_key)
+    meta = get_org_learning_metadata(org_key, session_id)
     if meta and meta.get("llm_summaries", {}).get("system_overview"):
         llm_summary_text = meta["llm_summaries"]["system_overview"]
     else:
@@ -76,6 +77,7 @@ async def get_learning_path(org_id: str) -> Dict[str, Any]:
             if llm_summary_text:
                 save_org_learning_metadata(
                     org_key,
+                    session_id,
                     llm_summaries={"system_overview": llm_summary_text},
                     notion_docs=meta.get("notion_docs", "") if meta else "",
                 )
@@ -126,9 +128,9 @@ Return a JSON object with two keys: "title" (short flow name, e.g. "Order Placem
 
 
 @router.get("/{org_id}/flows")
-async def get_flows(org_id: str) -> Dict[str, Any]:
+async def get_flows(org_id: str, session_id: str = Depends(get_session_id)) -> Dict[str, Any]:
     """Returns 2-3 major flows with optional LLM-generated title and description."""
-    global_graph, _, _, _ = _load_org_data(org_id)
+    global_graph, _, _, _ = _load_org_data(org_id, session_id)
     flows = get_major_flows(global_graph, max_flows=3, min_path_length=2)
     try:
         from app.core.llm import LLMService
@@ -156,14 +158,14 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/{org_id}/chat")
-async def post_chat(org_id: str, body: ChatRequest) -> Dict[str, Any]:
+async def post_chat(org_id: str, body: ChatRequest, session_id: str = Depends(get_session_id)) -> Dict[str, Any]:
     """
     Onboarding chatbot: full context injection, no chunking.
     Answers only from global graph, repo data, violations, summaries, docs.
     """
-    global_graph, repo_data, violations, org_key = _load_org_data(org_id)
+    global_graph, repo_data, violations, org_key = _load_org_data(org_id, session_id)
 
-    meta = get_org_learning_metadata(org_key)
+    meta = get_org_learning_metadata(org_key, session_id)
     llm_summaries = (meta or {}).get("llm_summaries") if meta else None
     notion_docs = (meta or {}).get("notion_docs", "") or ""
 

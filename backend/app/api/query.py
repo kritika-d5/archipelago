@@ -2,13 +2,14 @@
 API endpoints for LLM queries and what-if analysis.
 """
 import logging
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from urllib.parse import unquote
 
 from pydantic import BaseModel
 from app.schemas.graph_schema import QueryRequest, QueryResponse, WhatIfRequest, WhatIfResponse
 from app.core.llm import LLMService
 from app.core.db import get_graph, get_parsed_data
+from app.core.session import get_session_id
 from app.api.parse import parsed_graphs
 
 logger = logging.getLogger(__name__)
@@ -23,23 +24,24 @@ except Exception as e:
     llm_service = None
 
 
-def get_organization_data(org_key: str) -> dict:
+def get_organization_data(org_key: str, owner_id: str) -> dict:
     """
-    Fetch organization data from MongoDB.
-    
+    Fetch an owner's organization data from MongoDB.
+
     Args:
         org_key: Organization key (format: org:org_name)
-        
+        owner_id: Session/owner id the data is scoped to
+
     Returns:
         Organization data with repos and dependency graph
     """
     try:
         # Get the parsed data (individual repo JSONs)
-        parsed_doc = get_parsed_data(org_key)
+        parsed_doc = get_parsed_data(org_key, owner_id)
         repos_data = parsed_doc.get("parsed_data", {}) if parsed_doc else {}
-        
+
         # Get the main dependency graph
-        graph_doc = get_graph(org_key)
+        graph_doc = get_graph(org_key, owner_id)
         graph_data = graph_doc.get("graph_data", {}) if graph_doc else {}
         
         org_data = {
@@ -55,7 +57,7 @@ def get_organization_data(org_key: str) -> dict:
 
 
 @router.post("/ask", response_model=QueryResponse)
-async def ask_question(request: QueryRequest, repo_key: str = Query(..., description="Repository key")):
+async def ask_question(request: QueryRequest, repo_key: str = Query(..., description="Repository key"), session_id: str = Depends(get_session_id)):
     """
     Ask a question about the codebase using LLM.
     
@@ -84,11 +86,11 @@ async def ask_question(request: QueryRequest, repo_key: str = Query(..., descrip
             logger.info(f"Processing organization query: {decoded_key}")
             
             # Fetch organization data from MongoDB
-            org_data = get_organization_data(decoded_key)
-            
+            org_data = get_organization_data(decoded_key, session_id)
+
             if not org_data.get("repos_data"):
                 raise HTTPException(status_code=404, detail=f"Organization data not found: {decoded_key}")
-            
+
             # Process with organization-level LLM method
             response = llm_service.answer_org_query(org_data, request)
             return response
@@ -116,7 +118,7 @@ async def ask_question(request: QueryRequest, repo_key: str = Query(..., descrip
 
 
 @router.post("/what-if", response_model=WhatIfResponse)
-async def what_if_analysis(request: WhatIfRequest, repo_key: str = Query(..., description="Repository key")):
+async def what_if_analysis(request: WhatIfRequest, repo_key: str = Query(..., description="Repository key"), session_id: str = Depends(get_session_id)):
     """
     Perform what-if analysis on the codebase.
     
@@ -145,11 +147,11 @@ async def what_if_analysis(request: WhatIfRequest, repo_key: str = Query(..., de
             logger.info(f"Processing organization what-if analysis: {decoded_key}")
             
             # Fetch organization data from MongoDB
-            org_data = get_organization_data(decoded_key)
-            
+            org_data = get_organization_data(decoded_key, session_id)
+
             if not org_data.get("repos_data"):
                 raise HTTPException(status_code=404, detail=f"Organization data not found: {decoded_key}")
-            
+
             # Process with organization-level LLM method
             response = llm_service.analyze_org_what_if(org_data, request)
             return response
@@ -181,14 +183,14 @@ class DocDiffRequest(BaseModel):
 
 
 @router.post("/doc-diff")
-async def doc_vs_codebase_diff(request: DocDiffRequest, repo_key: str = Query(..., description="Repository key")):
+async def doc_vs_codebase_diff(request: DocDiffRequest, repo_key: str = Query(..., description="Repository key"), session_id: str = Depends(get_session_id)):
     """Compare documentation with codebase and suggest documentation edits."""
     if not llm_service:
         raise HTTPException(status_code=503, detail="LLM service not available")
     decoded_key = unquote(repo_key)
     codebase_summary = ""
     try:
-        parsed_doc = get_parsed_data(decoded_key)
+        parsed_doc = get_parsed_data(decoded_key, session_id)
         if parsed_doc:
             pd = parsed_doc.get("parsed_data", {})
             if decoded_key.startswith("org:"):
@@ -200,7 +202,7 @@ async def doc_vs_codebase_diff(request: DocDiffRequest, repo_key: str = Query(..
             else:
                 metas = pd.get("metadata", {})
                 codebase_summary = f"Repo: {metas.get('repository_name','')}. Services: {pd.get('services',[])}. Endpoints: {pd.get('api_endpoints',[])}. Schemas: {pd.get('database_schemas',[])}."
-        graph_doc = get_graph(decoded_key)
+        graph_doc = get_graph(decoded_key, session_id)
         if graph_doc:
             gd = graph_doc.get("graph_data", {})
             if not gd and graph_doc.get("nodes"):

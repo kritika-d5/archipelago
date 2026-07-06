@@ -1,11 +1,12 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, Dict, Any
 from urllib.parse import unquote
 from pathlib import Path
 from app.agents.graph_agent import GraphBuilder, KnowledgeGraphBuilder
 from app.api.parse import parsed_graphs
 from app.core.db import save_graph, save_parsed_data, get_graph, get_all_graphs
+from app.core.session import get_session_id
 from app.knowledge_graph.code_parser import parse_repository as simple_parse_repository
 from app.core.utils import clone_or_pull_repo
 from app.schemas.graph_schema import SubgraphContext
@@ -16,8 +17,9 @@ router = APIRouter(prefix="/api/graph", tags=["graph"])
 
 
 @router.get("/{repo_key:path}/visualize")
-async def get_graph_visualization(repo_key: str, depth: Optional[int] = None, 
-                                  important_only: bool = False):
+async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
+                                  important_only: bool = False,
+                                  session_id: str = Depends(get_session_id)):
     try:
         decoded_key = unquote(repo_key)
     except Exception:
@@ -32,8 +34,8 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
         logger.info(f"Loading organization graph: {org_key}")
         
         from app.core.db import get_graph
-        graph_doc = get_graph(org_key)
-        
+        graph_doc = get_graph(org_key, session_id)
+
         if not graph_doc:
             logger.error(f"Organization graph not found in MongoDB: {org_key}")
             raise HTTPException(status_code=404, detail=f"Organization graph '{org_key}' not found in MongoDB")
@@ -93,8 +95,8 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
         visualization = builder.get_graph_for_visualization(graph_data, filter_important_only=False)
     
     # SAVE TO MONGODB
-    save_graph_to_db(actual_key, visualization)
-    
+    save_graph_to_db(actual_key, visualization, session_id)
+
     return visualization
 
 
@@ -233,12 +235,13 @@ def convert_org_graph_to_visualization(org_graph: Dict[str, Any], org_key: str) 
     }
 
 
-def save_graph_to_db(graph_name: str, graph_data: dict):
-    """Helper function to save graph to MongoDB"""
+def save_graph_to_db(graph_name: str, graph_data: dict, owner_id: str):
+    """Helper function to save graph to MongoDB, scoped to an owner."""
     try:
         save_graph(
             graph_name=graph_name,
             graph_dict=graph_data,
+            owner_id=owner_id,
             timestamp=datetime.now()
         )
         logger.info(f"Graph '{graph_name}' saved to MongoDB")
@@ -251,10 +254,10 @@ def save_graph_to_db(graph_name: str, graph_data: dict):
 
 # NEW ENDPOINT: Get all saved graphs from MongoDB
 @router.get("/saved/all")
-async def get_all_saved_graphs():
-    """Retrieve all graphs stored in MongoDB"""
+async def get_all_saved_graphs(session_id: str = Depends(get_session_id)):
+    """Retrieve all graphs stored in MongoDB for this owner"""
     try:
-        graphs = get_all_graphs()
+        graphs = get_all_graphs(session_id)
         return {
             "count": len(graphs),
             "graphs": graphs
@@ -265,10 +268,10 @@ async def get_all_saved_graphs():
 
 # NEW ENDPOINT: Get specific graph from MongoDB
 @router.get("/saved/{graph_name}")
-async def get_saved_graph(graph_name: str):
+async def get_saved_graph(graph_name: str, session_id: str = Depends(get_session_id)):
     """Retrieve a specific graph from MongoDB by name"""
     try:
-        graph_doc = get_graph(graph_name)
+        graph_doc = get_graph(graph_name, session_id)
         if not graph_doc:
             raise HTTPException(status_code=404, detail=f"Graph '{graph_name}' not found in database")
         return graph_doc
@@ -354,7 +357,7 @@ async def get_impact_chain(repo_key: str, element_id: str, max_depth: int = 5):
 
 
 @router.post("/generate-graph")
-async def generate_graph(repo_url: str) -> Dict[str, Any]:
+async def generate_graph(repo_url: str, session_id: str = Depends(get_session_id)) -> Dict[str, Any]:
     """
     Generate a knowledge graph from a repository and save it to MongoDB.
     
@@ -423,12 +426,12 @@ async def generate_graph(repo_url: str) -> Dict[str, Any]:
         graph_name = f"{repo_url}:main"
         
         # Save UI-ready graph data to 'graphs' collection
-        save_graph_to_db(graph_name, graph_data)
+        save_graph_to_db(graph_name, graph_data, session_id)
         logger.info(f"Graph saved to MongoDB 'graphs' collection with name: {graph_name}")
-        
+
         # Save raw parsed data to 'parsed_data' collection
         try:
-            save_parsed_data(graph_name, parsed_data)
+            save_parsed_data(graph_name, parsed_data, session_id)
             logger.info(f"Parsed data saved to MongoDB 'parsed_data' collection")
         except Exception as e:
             logger.error(f"Failed to save parsed data to MongoDB: {str(e)}")
@@ -453,7 +456,7 @@ async def test_db_connection():
 
 
 @router.get("/{repo_key:path}/explain")
-async def explain_project(repo_key: str):
+async def explain_project(repo_key: str, session_id: str = Depends(get_session_id)):
     """
     Get LLM-generated explanation of the project including database schema.
     Supports both in-memory graphs and MongoDB organization graphs.
@@ -469,9 +472,9 @@ async def explain_project(repo_key: str):
     if decoded_key.startswith("org:") or repo_key.startswith("org:"):
         org_key = decoded_key if decoded_key.startswith("org:") else repo_key
         logger.info(f"Loading organization graph for explanation: {org_key}")
-        
-        graph_doc = get_graph(org_key)
-        
+
+        graph_doc = get_graph(org_key, session_id)
+
         if not graph_doc:
             raise HTTPException(status_code=404, detail=f"Organization graph '{org_key}' not found")
         

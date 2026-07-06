@@ -1,11 +1,12 @@
 import time
 import logging
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from typing import Dict, Any
 from app.schemas.graph_schema import ParsingRequest, ParsingResponse
 from app.knowledge_graph.repo_manager import RepositoryManager
 from app.knowledge_graph.code_parser import CodeParser
 from app.core.db import save_graph, save_parsed_data
+from app.core.session import get_session_id
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ parsed_graphs: Dict[str, Any] = {}
 
 
 @router.post("/", response_model=ParsingResponse)
-async def parse_repository(request: ParsingRequest, background_tasks: BackgroundTasks):
+async def parse_repository(request: ParsingRequest, background_tasks: BackgroundTasks, session_id: str = Depends(get_session_id)):
     start_time = time.time()
     
     try:
@@ -51,7 +52,7 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
             # Route to organization analysis
             from app.api.organization import analyze_organization
             try:
-                org_result = await analyze_organization(org_name)
+                org_result = await analyze_organization(org_name, session_id)
                 
                 # Store organization result in parsed_graphs with org key
                 org_key = f"org:{org_name}"
@@ -72,7 +73,7 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
                         "violations": dependency_graph.get("violations", [])
                     }
                     # Update/ensure MongoDB has the right structure
-                    save_graph(org_key, graph_data_for_viz, timestamp=datetime.now())
+                    save_graph(org_key, graph_data_for_viz, session_id, timestamp=datetime.now())
                     logger.info(f"Saved organization graph_data to MongoDB: {org_key}")
                 except Exception as e:
                     logger.error(f"Failed to save organization graph_data to MongoDB: {str(e)}")
@@ -130,7 +131,7 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
         # Save UI-ready graph data to 'graphs' collection
         try:
             graph_json = graph.model_dump(mode='json')
-            save_graph(graph_key, graph_json, timestamp=datetime.now())
+            save_graph(graph_key, graph_json, session_id, timestamp=datetime.now())
             logger.info(f"Graph data saved to MongoDB 'graphs' collection")
         except Exception as e:
             logger.error(f"Failed to save graph to MongoDB: {str(e)}")
@@ -138,7 +139,7 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
         # Save raw parsed data to 'parsed_data' collection
         try:
             raw_data = graph.model_dump(mode='json')
-            save_parsed_data(graph_key, raw_data)
+            save_parsed_data(graph_key, raw_data, session_id)
             logger.info(f"Parsed data saved to MongoDB 'parsed_data' collection")
         except Exception as e:
             logger.error(f"Failed to save parsed data to MongoDB: {str(e)}")
@@ -165,7 +166,7 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
 
 
 @router.get("/")
-async def list_parsed_graphs():
+async def list_parsed_graphs(session_id: str = Depends(get_session_id)):
     from app.core.db import get_all_graphs
     
     graphs_list = []
@@ -193,7 +194,7 @@ async def list_parsed_graphs():
     
     # Also add organization graphs from MongoDB
     try:
-        mongo_graphs = get_all_graphs()
+        mongo_graphs = get_all_graphs(session_id)
         for graph_doc in mongo_graphs:
             graph_name = graph_doc.get("graph_name", "")
             if graph_name.startswith("org:"):

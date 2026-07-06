@@ -2,12 +2,13 @@
 API endpoints for Architecture Studio feature.
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any
 
 from app.schemas.architecture_schema import ArchitectureRequest, ArchitectureBlueprint, ArchitectureModifyRequest
 from app.agents.architecture_agent import ArchitectureAgent
 from app.core.db import get_graph, get_parsed_data
+from app.core.session import get_session_id
 from app.core.llm import LLMService
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ except Exception as e:
 
 
 @router.post("/generate", response_model=ArchitectureBlueprint)
-async def generate_architecture(request: ArchitectureRequest) -> ArchitectureBlueprint:
+async def generate_architecture(request: ArchitectureRequest, session_id: str = Depends(get_session_id)) -> ArchitectureBlueprint:
     """
     Generate architecture blueprint.
     
@@ -59,14 +60,14 @@ async def generate_architecture(request: ArchitectureRequest) -> ArchitectureBlu
                 )
             
             # Fetch graph and parsed data from MongoDB
-            graph_data = get_graph(request.repo_key)
+            graph_data = get_graph(request.repo_key, session_id)
             if not graph_data:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Graph not found for repo_key: {request.repo_key}"
                 )
-            
-            parsed_data = get_parsed_data(request.repo_key)
+
+            parsed_data = get_parsed_data(request.repo_key, session_id)
             system_summary = agent.summarize_graph(graph_data, parsed_data)
             
             user_intent = request.requirements or "Optimize the existing architecture"

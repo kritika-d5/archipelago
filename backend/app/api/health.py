@@ -4,9 +4,10 @@ Health and platform diagnostics: MongoDB, stored graphs, architecture violations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.config import GROQ_API_KEY
+from app.core.session import get_optional_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,8 @@ def _violation_detail(v: Any, graph_name: str) -> Optional[Dict[str, Any]]:
     return {"graph_name": graph_name, "detail": str(v)}
 
 
-def _collect_graph_violations() -> Dict[str, Any]:
-    """Scan MongoDB graphs for metadata violations and flagged edges."""
+def _collect_graph_violations(owner_id: str) -> Dict[str, Any]:
+    """Scan a single owner's MongoDB graphs for metadata violations and flagged edges."""
     violations: List[Dict[str, Any]] = []
     graph_names: List[str] = []
 
@@ -50,7 +51,7 @@ def _collect_graph_violations() -> Dict[str, Any]:
                 "mongo_error": "Database not initialized (check MONGO_URI)",
             }
 
-        cursor = db_module.db.graphs.find({}, {"graph_name": 1, "graph_data": 1})
+        cursor = db_module.db.graphs.find({"owner_id": owner_id}, {"graph_name": 1, "graph_data": 1})
         for doc in cursor:
             name = doc.get("graph_name") or "unknown"
             graph_names.append(name)
@@ -153,9 +154,11 @@ Write 2 short paragraphs (no markdown headings):
 
 
 @router.get("/")
-def health_check():
+def health_check(session_id: Optional[str] = Depends(get_optional_session_id)):
     """
-    Extended health: API up, Mongo ping, graph/violation scan, optional Groq narrative.
+    Extended health: API up, Mongo ping, and — only when a valid X-Session-Id is present —
+    that caller's own graph/violation scan plus an optional Groq narrative. Without a session
+    the endpoint still works as a liveness probe but exposes no per-user data.
     """
     mongodb_connected = False
     mongo_detail: Optional[Dict[str, Any]] = None
@@ -167,15 +170,21 @@ def health_check():
         if db_module.client is not None and db_module.db is not None:
             db_module.client.admin.command("ping")
             mongodb_connected = True
-            mongo_detail = {
-                "database": "archipelago",
-                "collections": db_module.db.list_collection_names(),
-            }
     except Exception as e:
         mongo_error = str(e)
         logger.warning("Health: MongoDB ping failed: %s", e)
 
-    graph_info = _collect_graph_violations()
+    # Per-owner graph scan only when the caller presents a valid session.
+    if session_id:
+        graph_info = _collect_graph_violations(session_id)
+    else:
+        graph_info = {
+            "stored_graphs": 0,
+            "graph_names": [],
+            "violations": [],
+            "violation_count": 0,
+            "mongo_error": None,
+        }
     if graph_info.get("mongo_error") and not mongo_error:
         mongo_error = graph_info["mongo_error"]
 

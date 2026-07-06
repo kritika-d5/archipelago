@@ -31,3 +31,13 @@ def get_session_id(x_session_id: Optional[str] = Header(default=None)) -> str:
             detail="Missing or invalid X-Session-Id header. Reload the app to generate a session.",
         )
     return token
+
+
+def get_optional_session_id(x_session_id: Optional[str] = Header(default=None)) -> Optional[str]:
+    """Like get_session_id but never raises — returns the id if valid, else None.
+
+    For endpoints that must stay reachable without a session (e.g. a health/liveness probe
+    hit by uptime monitors) but should scope any per-owner data when a session is present.
+    """
+    token = (x_session_id or "").strip()
+    return token if _SESSION_RE.match(token) else None
