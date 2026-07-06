@@ -17,16 +17,39 @@ class ConnectUrlResponse(BaseModel):
     )
 
 
+def _masked_key(key: str) -> str:
+    """Log-safe key fingerprint: prefix + suffix + length. Never logs the full secret."""
+    if not key:
+        return "<empty>"
+    if len(key) <= 12:
+        return f"<short len={len(key)}>"
+    return f"{key[:6]}...{key[-4:]} (len={len(key)})"
+
+
 def get_composio():
     if not COMPOSIO_API_KEY:
         logger.info("COMPOSIO_API_KEY not set - GitHub/Notion OAuth unavailable")
         return None
     try:
+        import composio as _composio_pkg
         from composio import Composio
-        return Composio(
+        client = Composio(
             api_key=COMPOSIO_API_KEY,
             toolkit_versions={"github": "20260217_00", "notion": "20260217_00"}
         )
+        # Diagnostic: confirm which key/SDK the RUNNING service actually loaded. Compare the
+        # masked fingerprint here against the key you validate with curl. Safe to leave in.
+        base_url = (
+            getattr(client, "base_url", None)
+            or getattr(getattr(client, "client", None), "base_url", None)
+        )
+        logger.info(
+            "Composio init: sdk=%s key=%s base_url=%s",
+            getattr(_composio_pkg, "__version__", "?"),
+            _masked_key(COMPOSIO_API_KEY),
+            base_url,
+        )
+        return client
     except ImportError as e:
         logger.warning(f"composio package not installed: {e}")
         return None
