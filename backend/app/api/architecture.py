@@ -86,13 +86,13 @@ async def generate_architecture(request: ArchitectureRequest, session_id: str = 
     except HTTPException:
         raise
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"Invalid response format: {str(e)}")
+        logger.error(f"Validation error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid response format from the model")
     except Exception as e:
         logger.error(f"Error generating architecture: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error generating architecture blueprint: {str(e)}"
+            detail="Error generating architecture blueprint"
         )
 
 
@@ -113,11 +113,11 @@ async def modify_architecture(request: ArchitectureModifyRequest) -> Architectur
     except HTTPException:
         raise
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Validation error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid modification request")
     except Exception as e:
         logger.error(f"Error modifying architecture: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Error modifying architecture")
 
 
 @router.get("/health")

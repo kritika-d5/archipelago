@@ -239,7 +239,8 @@ async def get_all_saved_graphs(session_id: str = Depends(get_session_id)):
             "graphs": graphs
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve graphs: {str(e)}")
+        logger.error(f"Failed to retrieve graphs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve graphs")
 
 
 # NEW ENDPOINT: Get specific graph from MongoDB
@@ -251,8 +252,11 @@ async def get_saved_graph(graph_name: str, session_id: str = Depends(get_session
         if not graph_doc:
             raise HTTPException(status_code=404, detail=f"Graph '{graph_name}' not found in database")
         return graph_doc
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve graph: {str(e)}")
+        logger.error(f"Failed to retrieve graph '{graph_name}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve graph")
 
 
 @router.get("/{repo_key:path}/element/{element_id}")
@@ -393,10 +397,10 @@ async def generate_graph(repo_url: str, session_id: str = Depends(get_session_id
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error generating graph: {str(e)}")
+        logger.error(f"Error generating graph: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error generating graph: {str(e)}"
+            detail="Error generating graph"
         )
 
 

@@ -109,7 +109,7 @@ async def ask_question(request: QueryRequest, repo_key: str = Query(..., descrip
         raise
     except Exception as e:
         logger.error(f"Error answering query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing query")
 
 
 @router.post("/what-if", response_model=WhatIfResponse)
@@ -165,7 +165,7 @@ async def what_if_analysis(request: WhatIfRequest, repo_key: str = Query(..., de
         raise
     except Exception as e:
         logger.error(f"Error in what-if analysis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error performing analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error performing analysis")
 
 
 class DocDiffRequest(BaseModel):
@@ -258,4 +258,4 @@ Return ONLY a JSON array, no other text. Example: [{{"id":"1","type":"add","desc
         }
     except Exception as e:
         logger.error(f"Doc diff failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to compare documentation")

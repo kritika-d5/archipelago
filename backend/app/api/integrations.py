@@ -135,7 +135,7 @@ async def get_connect_url(toolkit: str, session_id: str = Depends(get_session_id
         raise
     except Exception as e:
         logger.error(f"Composio authorize failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/status/{toolkit}")
@@ -224,7 +224,7 @@ async def list_github_repos(session_id: str = Depends(get_session_id)):
         return {"repos": repos}
     except Exception as e:
         logger.error(f"List repos failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 def _normalize_org_list(items: list) -> list:
@@ -337,7 +337,7 @@ async def list_notion_pages(query: str = "", session_id: str = Depends(get_sessi
         return {"pages": pages}
     except Exception as e:
         logger.error(f"List Notion pages failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/notion/page/{page_id:path}")
@@ -382,7 +382,7 @@ async def get_notion_page_content(page_id: str, session_id: str = Depends(get_se
         return {"content": "\n".join(text_parts) if text_parts else "", "page_id": page_id}
     except Exception as e:
         logger.error(f"Get Notion page failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 class NotionUpdateRequest(BaseModel):
@@ -534,4 +534,4 @@ async def update_notion_page(request: NotionUpdateRequest, session_id: str = Dep
         }
     except Exception as e:
         logger.error(f"Update Notion page failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update Notion page: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update Notion page")

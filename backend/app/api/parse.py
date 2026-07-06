@@ -114,10 +114,10 @@ async def parse_repository(request: ParsingRequest, background_tasks: Background
                     files_parsed=org_result.get("summary", {}).get("total_repos", 0)
                 )
             except Exception as e:
-                logger.error(f"Organization analysis failed: {str(e)}")
+                logger.error(f"Organization analysis failed: {str(e)}", exc_info=True)
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Failed to analyze organization '{org_name}': {str(e)}"
+                    detail=f"Failed to analyze organization '{org_name}'"
                 )
         
         # Single repository parsing (existing logic)

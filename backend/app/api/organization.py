@@ -104,7 +104,7 @@ async def analyze_organization(org_name: str, session_id: str = Depends(get_sess
         logger.error(f"Error analyzing organization: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error analyzing organization: {str(e)}"
+            detail="Error analyzing organization"
         )
 
 
@@ -129,10 +129,10 @@ async def list_organization_repos(org_name: str) -> Dict[str, Any]:
             "count": len(repos)
         }
     except Exception as e:
-        logger.error(f"Error listing repositories: {str(e)}")
+        logger.error(f"Error listing repositories: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Error listing repositories: {str(e)}"
+            detail="Error listing repositories"
         )
 
 

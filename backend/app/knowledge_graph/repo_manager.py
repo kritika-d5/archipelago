@@ -4,10 +4,34 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 from git import Repo, GitCommandError
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Only allow cloning from these hosts. The app analyses GitHub repos via Composio, so this
+# is intentionally strict — it blocks SSRF (file://, git://, ssh, localhost/internal IPs)
+# and cloning from arbitrary hosts.
+ALLOWED_CLONE_HOSTS = {"github.com", "www.github.com"}
+
+
+def validate_repo_url(repo_url: str) -> str:
+    """Validate a clone URL before handing it to git. Returns the normalized URL or raises.
+
+    Rejects non-https schemes and any host not in ALLOWED_CLONE_HOSTS, which prevents
+    server-side request forgery (e.g. file://, git://, ssh://, http://localhost, internal IPs).
+    """
+    if not repo_url or not isinstance(repo_url, str):
+        raise ValueError("Repository URL is required")
+    url = repo_url.strip()
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"Only https:// repository URLs are allowed (got '{parsed.scheme or 'no scheme'}')")
+    host = (parsed.hostname or "").lower()
+    if host not in ALLOWED_CLONE_HOSTS:
+        raise ValueError(f"Repository host '{host}' is not allowed. Only GitHub repositories are supported.")
+    return url
 
 
 class RepositoryManager:
@@ -45,8 +69,9 @@ class RepositoryManager:
         Raises:
             Exception: If cloning/updating fails
         """
+        repo_url = validate_repo_url(repo_url)
         repo_path = self.get_repo_path(repo_url)
-        
+
         try:
             if repo_path.exists() and (repo_path / ".git").exists():
                 # Repository exists, update it
@@ -74,10 +99,12 @@ class RepositoryManager:
                 if repo_path.exists():
                     shutil.rmtree(repo_path)
                 
-                clone_kwargs = {"url": repo_url, "to_path": str(repo_path)}
+                # Shallow clone: we only need the working tree to parse, not full history.
+                # This caps download size/time (DoS mitigation) on large repos.
+                clone_kwargs = {"url": repo_url, "to_path": str(repo_path), "depth": 1}
                 if branch:
                     clone_kwargs["branch"] = branch
-                
+
                 repo = Repo.clone_from(**clone_kwargs)
                 logger.info(f"Repository cloned to: {repo_path}")
             

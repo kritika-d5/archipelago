@@ -36,7 +36,16 @@ Design constraints (from product owner):
 >   makes them survive Render restarts / multiple workers — **also closes Phase 2.1's durability
 >   gap** for graph state. Threaded through graph.py (visualize, element, file, impact, explain,
 >   subgraph), query.py (ask, what-if), and parse.py (list/get/json/delete + scoped `delete_graph`).
-> - Remaining: 0.4 (validate clone URLs), 0.5 (error leakage), Phase 2.2 (background parse job).
+> - 0.4 ✅ DONE (2026-07-06) — `validate_repo_url()` in repo_manager.py: https-only + host
+>   allow-list (github.com) blocks SSRF (file://, git://, ssh, localhost/internal IPs); applied
+>   to both clone paths (repo_manager + utils.clone_or_pull_repo). Clones are now shallow
+>   (`depth=1`) to cap size/time (DoS mitigation).
+> - 0.5 ✅ DONE (2026-07-06) — genericized every client-facing 500/400 that echoed `str(e)`
+>   across integrations, query, graph, organization, architecture, timeline, parse. Full
+>   exceptions are logged server-side (exc_info=True); clients get a generic message. Also
+>   fixed a bare `except Exception` that was swallowing a 404 into a 500 in graph.get_saved_graph.
+> - **Phase 0 complete.** Remaining from later phases: Phase 1 (parser/graph quality — the
+>   original "graph shows nothing" issue), Phase 2.2 (background parse job), Phase 3 (login).
 
 The app is currently an open proxy to whatever GitHub/Notion account is connected, and
 the health endpoint exposes every user's data. Because connecting must work *without*

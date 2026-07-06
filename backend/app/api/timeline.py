@@ -113,8 +113,8 @@ async def github_webhook(request: Request, x_hub_signature_256: Optional[str] = 
         return {"status": "ok"}
 
     except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing webhook: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error processing webhook")
 
 
 @router.get("/")
@@ -123,5 +123,5 @@ async def list_timeline(repo: Optional[str] = None, doc_only: Optional[bool] = F
         events = get_timeline_events(limit=limit, skip=skip, repo=repo, doc_only=doc_only)
         return {"count": len(events), "events": events}
     except Exception as e:
-        logger.error(f"Failed to retrieve timeline events: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to retrieve timeline events: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve timeline events")
