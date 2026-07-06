@@ -1,6 +1,7 @@
 import os
 import ast
 import re
+import json
 import posixpath
 from pathlib import Path
 from typing import List, Dict, Optional, Set, Any
@@ -224,21 +225,26 @@ class CodeParser:
             if workflow_info_temp:
                 module.metadata['workflow_info'] = workflow_info_temp
             
-            # Parse functions (not methods)
+            # Parse top-level functions (not methods). Methods are the direct function children
+            # of a class body — collect those once so we can skip them (correct + O(n), and it
+            # avoids crashing on nodes like IfExp/Lambda whose `.body` is a single expression).
+            method_nodes = set()
+            for cnode in ast.walk(tree):
+                if isinstance(cnode, ast.ClassDef):
+                    for child in cnode.body:
+                        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            method_nodes.add(child)
+
             for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    # Check if it's a method (inside a class)
-                    is_method = any(
-                        isinstance(parent, ast.ClassDef) for parent in ast.walk(tree)
-                        if hasattr(parent, 'body') and node in parent.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node in method_nodes:
+                        continue  # method — captured via its class
+                    func_elem, func_deps = self._parse_python_function(
+                        node, file_path, repo_path, content, is_method=False
                     )
-                    if not is_method:
-                        func_elem, func_deps = self._parse_python_function(
-                            node, file_path, repo_path, content, is_method=False
-                        )
-                        elements.append(func_elem)
-                        dependencies.extend(func_deps)
-                        module.element_ids.append(func_elem.id)
+                    elements.append(func_elem)
+                    dependencies.extend(func_deps)
+                    module.element_ids.append(func_elem.id)
             
             # Detect database models/schemas
             db_elements, db_deps = self._detect_database_models(tree, file_path, repo_path, content)
@@ -440,9 +446,8 @@ class CodeParser:
 
         specs = self._extract_js_imports(content)
         module.imports = specs
-        rel_specs = [s for s in specs if s.startswith('.')]
-        if rel_specs:
-            module.metadata['js_imports'] = rel_specs
+        if specs:
+            module.metadata['js_imports'] = specs
         return [], [], module
 
     def _extract_js_imports(self, content: str) -> List[str]:
@@ -558,7 +563,10 @@ class CodeParser:
         # Resolve dependency targets to real node IDs and add cross-module import edges.
         # Without this, call/inheritance edges point at non-existent same-file/pathless IDs and
         # get dropped by the graph builder — which is why the graph looked disconnected.
-        all_dependencies = self._resolve_dependencies(all_elements, all_modules, all_dependencies)
+        js_base_url, js_aliases = self._load_js_path_config(repo_path)
+        all_dependencies = self._resolve_dependencies(
+            all_elements, all_modules, all_dependencies, js_base_url, js_aliases
+        )
 
         # Build metadata
         repo_name = Path(repo_path).name
@@ -640,7 +648,8 @@ class CodeParser:
         return None
 
     def _resolve_dependencies(self, elements: List[CodeElement], modules: List[Module],
-                              dependencies: List[Dependency]) -> List[Dependency]:
+                              dependencies: List[Dependency],
+                              js_base_url: str = ".", js_aliases: Optional[Dict[str, List[str]]] = None) -> List[Dependency]:
         """Resolve call/inheritance dependency targets to real element IDs and add cross-module
         IMPORT edges. Anything that can't be resolved inside this repo (external libs, builtins)
         is dropped so the graph only contains edges between real nodes."""
@@ -693,7 +702,8 @@ class CodeParser:
                         strength=0.6,
                     ))
 
-        # Cross-module import edges — JS/TS (relative file specifiers)
+        # Cross-module import edges — JS/TS (relative specifiers + tsconfig path aliases/baseUrl)
+        js_aliases = js_aliases or {}
         js_index = {self._strip_js_ext(m.file_path.replace('\\', '/')): m.id for m in modules}
         for m in modules:
             specs = m.metadata.get('js_imports') or []
@@ -701,8 +711,7 @@ class CodeParser:
                 continue
             base_dir = posixpath.dirname(m.file_path.replace('\\', '/'))
             for spec in specs:
-                resolved_path = posixpath.normpath(posixpath.join(base_dir, spec))
-                tid = self._match_js_target(resolved_path, js_index)
+                tid = self._resolve_js_spec(spec, base_dir, js_index, js_base_url, js_aliases)
                 if tid:
                     add(Dependency(
                         source_id=m.id,
@@ -712,6 +721,77 @@ class CodeParser:
                     ))
 
         return resolved
+
+    def _norm_rel(self, p: str) -> str:
+        """Normalize a config path: forward slashes, drop a leading './'."""
+        p = (p or '').replace('\\', '/')
+        return p[2:] if p.startswith('./') else p
+
+    def _relaxed_json(self, text: str) -> str:
+        """Make a tsconfig/jsconfig loadable by json.loads: strip comments + trailing commas."""
+        text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
+        text = re.sub(r'(^|\s)//[^\n]*', r'\1', text)
+        text = re.sub(r',(\s*[}\]])', r'\1', text)
+        return text
+
+    def _load_js_path_config(self, repo_path: Path) -> tuple:
+        """Read tsconfig.json/jsconfig.json for baseUrl + path aliases (compilerOptions.paths)."""
+        base_url = "."
+        aliases: Dict[str, List[str]] = {}
+        for cfg_name in ("tsconfig.json", "jsconfig.json"):
+            cfg_path = repo_path / cfg_name
+            if not cfg_path.exists():
+                continue
+            try:
+                with open(cfg_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    data = json.loads(self._relaxed_json(f.read()))
+            except Exception:
+                continue
+            co = data.get("compilerOptions", {}) if isinstance(data, dict) else {}
+            if isinstance(co, dict):
+                if co.get("baseUrl"):
+                    base_url = co["baseUrl"]
+                paths = co.get("paths")
+                if isinstance(paths, dict):
+                    for k, v in paths.items():
+                        if isinstance(v, list):
+                            aliases[k] = v
+            break
+        return base_url, aliases
+
+    def _apply_alias(self, spec: str, pattern: str, targets: List[str], base: str) -> List[str]:
+        """Map a spec through one tsconfig path alias (e.g. '@/*' -> ['src/*'])."""
+        out = []
+        if pattern.endswith('/*'):
+            prefix = pattern[:-1]  # '@/'
+            if spec.startswith(prefix):
+                suffix = spec[len(prefix):]
+                for t in targets:
+                    mapped = self._norm_rel(t).replace('*', suffix)
+                    out.append(posixpath.normpath(posixpath.join(base, mapped)))
+        elif spec == pattern:
+            for t in targets:
+                out.append(posixpath.normpath(posixpath.join(base, self._norm_rel(t))))
+        return out
+
+    def _resolve_js_spec(self, spec: str, base_dir: str, js_index: Dict[str, str],
+                         base_url: str, aliases: Dict[str, List[str]]) -> Optional[str]:
+        """Resolve a JS/TS import specifier to a module id via relative path, tsconfig alias,
+        or baseUrl. Returns None for external/npm packages (react, next, …)."""
+        base = self._norm_rel(base_url)
+        candidates: List[str] = []
+        if spec.startswith('.'):
+            candidates.append(posixpath.normpath(posixpath.join(base_dir, spec)))
+        else:
+            for pattern, targets in aliases.items():
+                candidates.extend(self._apply_alias(spec, pattern, targets, base))
+            # bare non-relative specifier may still be repo-local via baseUrl
+            candidates.append(posixpath.normpath(posixpath.join(base, spec)))
+        for c in candidates:
+            tid = self._match_js_target(c, js_index)
+            if tid:
+                return tid
+        return None
 
     def _strip_js_ext(self, path: str) -> str:
         for ext in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'):
