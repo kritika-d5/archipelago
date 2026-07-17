@@ -48,6 +48,7 @@ function KnowledgeGraph() {
   const [minDegreeDraft, setMinDegreeDraft] = useState(0); // live slider value while dragging
   const [selectedNode, setSelectedNode] = useState(null);
   const [sideTab, setSideTab] = useState('ask'); // right panel: 'ask' | 'docs'
+  const [sideExpanded, setSideExpanded] = useState(false); // Ask/Docs panel fullscreen overlay
 
   const cyRef = useRef(null);
   const containerRef = useRef(null);
@@ -58,6 +59,14 @@ function KnowledgeGraph() {
       .then((response) => setParsedGraphs(response.data.graphs || []))
       .catch((err) => console.error(err));
   }, []);
+
+  // Close the expanded Ask/Docs overlay on Escape.
+  useEffect(() => {
+    if (!sideExpanded) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setSideExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sideExpanded]);
 
   // Consume Notion doc content handed over by the "Add documentation from Notion" flow.
   useEffect(() => {
@@ -510,7 +519,10 @@ function KnowledgeGraph() {
             </div>
           </div>
 
-          <div className="graph-side">
+          {sideExpanded && (
+            <div className="graph-side-backdrop" onClick={() => setSideExpanded(false)} />
+          )}
+          <div className={`graph-side${sideExpanded ? ' graph-side--expanded' : ''}`}>
             <div className="graph-side-tabs">
               <button
                 type="button"
@@ -525,6 +537,15 @@ function KnowledgeGraph() {
                 onClick={() => setSideTab('docs')}
               >
                 Documentation
+              </button>
+              <button
+                type="button"
+                className="graph-side-expand"
+                onClick={() => setSideExpanded((v) => !v)}
+                title={sideExpanded ? 'Collapse panel' : 'Expand panel'}
+                aria-label={sideExpanded ? 'Collapse panel' : 'Expand panel'}
+              >
+                {sideExpanded ? '⤡' : '⤢'}
               </button>
             </div>
             <div className="graph-side-body">

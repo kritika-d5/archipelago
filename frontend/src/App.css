@@ -454,6 +454,46 @@ body {
   background: var(--accent-muted);
 }
 
+.graph-side-expand {
+  flex: 0 0 auto;
+  width: 44px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-left: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.graph-side-expand:hover {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Fullscreen overlay for the Ask/Docs panel */
+.graph-side-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.15s ease;
+}
+
+.graph-side--expanded {
+  position: fixed;
+  inset: 3vh 3vw;
+  z-index: 1000;
+  height: auto !important;
+  max-width: none;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  animation: fadeIn 0.15s ease;
+}
+
 .graph-side-body {
   flex: 1;
   min-height: 0;

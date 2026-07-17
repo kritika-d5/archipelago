@@ -569,3 +569,30 @@
   letter-spacing: 0.06em;
   color: var(--ds-text-muted);
 }
+
+.ds-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin-top: 0.6rem;
+}
+
+.ds-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--ds-text-muted);
+}
+
+.ds-legend-item strong {
+  color: var(--ds-text);
+  font-weight: 700;
+}
+
+.ds-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}

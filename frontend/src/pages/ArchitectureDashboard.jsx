@@ -353,15 +353,24 @@ export default function ArchitectureDashboard() {
               <div className="ds-bento-card">
                 <h3>Code composition</h3>
                 {elementPie.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={200}>
-                    <PieChart>
-                      <Pie data={elementPie} cx="50%" cy="50%" innerRadius={45} outerRadius={72} paddingAngle={2} dataKey="value"
-                        label={({ name, value }) => `${name} ${value}`}>
-                        {elementPie.map((e, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={{ background: 'var(--ds-bg-elevated)', border: '1px solid var(--ds-border)' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <>
+                    <ResponsiveContainer width="100%" height={170}>
+                      <PieChart>
+                        <Pie data={elementPie} cx="50%" cy="50%" innerRadius={44} outerRadius={68} paddingAngle={2} dataKey="value">
+                          {elementPie.map((e, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{ background: 'var(--ds-bg-elevated)', border: '1px solid var(--ds-border)' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="ds-legend">
+                      {elementPie.map((e, i) => (
+                        <span key={i} className="ds-legend-item">
+                          <span className="ds-legend-dot" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                          {e.name} <strong>{e.value}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </>
                 ) : <p className="ds-empty">No elements detected</p>}
               </div>
               <div className="ds-bento-card">
