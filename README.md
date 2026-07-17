@@ -1,19 +1,19 @@
-# MangoBytes
+# Archipelago
 
-**MangoBytes** is an engineering knowledge platform that turns GitHub repositories (and whole organizations) into a **living knowledge graph**. You can explore dependencies visually, ask natural-language questions about the codebase, compare documentation to the graph, generate architecture blueprints with an LLM, and use an architecture hub with metrics and learning-path style views.
+**Archipelago** is an engineering knowledge platform that turns GitHub repositories (and whole organizations) into a **living knowledge graph**. Explore dependencies visually across multiple zoom levels, ask natural-language questions about the codebase, compare (and sync) documentation against the graph, generate architecture blueprints with an LLM, and get real code-intelligence insights in an architecture hub.
 
 ---
 
 ## Features
 
-- **Repository & organization parsing** — Clone and analyze a single repo or an entire GitHub org; results are stored for visualization and queries.
-- **Knowledge graph** — Interactive dependency graph (Cytoscape) with support for repo keys and `org:…` organization graphs.
-- **Q&A** — Ask questions in context of a selected graph (`/api/query`).
-- **Documentation check** — Paste docs and get suggestions against the graph (`doc-diff`).
-- **Architecture Studio** — Greenfield and brownfield architecture blueprints (JSON + Mermaid) via Groq.
-- **Architecture Hub** — Dashboard-style view with charts and graph (`/hub`).
-- **Integrations** — Optional Composio-powered flows for GitHub, Notion, and related APIs (when configured).
-- **Learning path & timeline** — Organization-level learning path and GitHub timeline endpoints (see backend routers).
+- **Repository & organization parsing** — Clone and analyze a single repo or an entire GitHub org (Python + JS/TS); results are persisted for visualization and queries. Interrupted clones self-heal on the next attempt.
+- **Knowledge graph** — Interactive Cytoscape graph with three views: **Dependencies** (module import graph, laid out left-to-right via dagre), **Architecture** (folder-grouped), and **Files** (every element). Includes a connectivity slider to hide low-degree nodes, click-to-focus, and a fit-to-screen layout. The Ask/Docs side panel expands to fullscreen.
+- **Ask the graph** — Natural-language Q&A scoped to the selected repo or `org:…` graph (`/api/query/ask`).
+- **Documentation check + Notion sync** — Paste docs or pull a **Notion** page, diff it against the graph, and apply suggested edits straight back to the Notion page (`/api/query/doc-diff`, `/api/integrations/notion/update`).
+- **Architecture Hub** — Per-repository **code insights**: composition (functions/classes/AI agents/DB models), most-connected and most-depended-upon modules, circular-dependency and god-module detection, entry points, folder structure, and plain-language observations (`/api/graph/{key}/insights`). Organization graphs show REST/event/violation statistics. The assistant chat expands to fullscreen.
+- **Architecture Studio & blueprints** — Greenfield/brownfield architecture blueprints (JSON + Mermaid) via the LLM.
+- **Integrations** — Optional Composio-powered GitHub and Notion flows (when configured).
+- **Learning path & timeline** — Organization-level learning path and GitHub timeline endpoints.
 
 ---
 
@@ -21,7 +21,7 @@
 
 | Layer | Technologies |
 |--------|----------------|
-| **Frontend** | React 19, React Router, Axios, Cytoscape, Recharts, React Markdown, Mermaid |
+| **Frontend** | React 19, React Router, Axios, Cytoscape (+ dagre & cose-bilkent layouts), Recharts, React Markdown, Mermaid |
 | **Backend** | Python 3.11+, FastAPI, Uvicorn, Pydantic v2 |
 | **Graph / parsing** | NetworkX, GitPython, custom parsers |
 | **LLM** | Groq API (`GROQ_API_KEY`) |
@@ -118,12 +118,13 @@ Create **`backend/.env`** (never commit it; it is gitignored).
 ## Project layout
 
 ```
-MangoBytes/
+Archipelago/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py          # FastAPI app + routers
 │   │   ├── api/             # parse, graph, query, architecture, org, integrations, …
-│   │   ├── agents/          # graph + architecture agents
+│   │   ├── agents/          # graph_agent (views, insights) + architecture agents
+│   │   ├── knowledge_graph/ # code_parser, repo_manager (clone/self-heal)
 │   │   ├── core/            # db, llm, config
 │   │   └── …
 │   ├── requirements.txt
@@ -131,8 +132,8 @@ MangoBytes/
 │   └── run_dev.bat          # Windows: uvicorn with reload
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/           # Landing, Dashboard, KnowledgeGraph, Hub, …
-│   │   ├── components/
+│   │   ├── pages/           # Landing, Dashboard, KnowledgeGraph, ArchitectureDashboard (Hub), …
+│   │   ├── components/      # DashboardLayout, LoadingModal, NotionDocModal
 │   │   └── services/api.js
 │   └── package.json
 ├── start_all.bat            # Windows: backend (venv) + frontend
@@ -147,42 +148,27 @@ MangoBytes/
 |------|---------|
 | `/` | Landing — connect GitHub or start from a text blueprint |
 | `/dashboard` | Parse repos / orgs and list parsed graphs |
-| `/graph?repo=…` | Knowledge graph + chat + documentation check |
-| `/hub` | Architecture hub (metrics, charts, graph) |
-| `/architecture` | Architecture Studio |
-| `/blueprint` | Greenfield blueprint flow |
-| `/connect-github` | GitHub connection flow |
-| `/health` | Health check page (if implemented) |
+| `/graph?repo=…` | Knowledge graph (Dependencies / Architecture / Files views) + Ask/Docs panel |
+| `/hub` | Architecture Hub — per-repo insights & charts, or org REST/event stats |
+| `/architecture` | Architecture Studio (reachable by URL; not in the top nav) |
+| `/blueprint` | Greenfield blueprint flow ("Start with Words") |
+| `/connect-github` | GitHub connection + parse flow |
+| `/health` | System health page |
 
 ---
 
 ## API overview
 
-The FastAPI app title is **“Living Knowledge Graph System”**. Routers include (non-exhaustive):
+The FastAPI app title is **“Archipelago — Living Knowledge Graph”**. Routers include (non-exhaustive):
 
 - `/api/parse/` — Parse repositories and list parsed graphs
-- `/api/graph/…` — Visualization and saved graph data
-- `/api/query/…` — Ask and doc-diff
+- `/api/graph/{key}/visualize?view=modules|architecture|files` — Graph views for the explorer
+- `/api/graph/{key}/insights` — Per-repository code-intelligence insights (Hub)
+- `/api/query/ask`, `/api/query/doc-diff` — Q&A and documentation diff
+- `/api/integrations/…` — GitHub / Notion connection, pages, and `notion/update` (apply doc edits)
 - `/architecture/…` — Blueprint generation
-- `/api/org/…`, `/api/integrations/…`, `/api/…/learning-path`, timeline routes as implemented in `app/api`
+- `/api/org/…`, `/api/…/learning-path`, timeline routes as implemented in `app/api`
 
 Interactive docs: **http://127.0.0.1:8000/docs** (when the server is running).
 
----
 
-## Deploy (Vercel + Render)
-
-Step-by-step guide for hosting the **React app on Vercel** and the **FastAPI API on Render**: see **[DEPLOY_VERCEL_RENDER.md](./DEPLOY_VERCEL_RENDER.md)**. The repo includes `render.yaml` and `frontend/vercel.json`; set **`REACT_APP_API_URL`** on Vercel and **`CORS_ORIGINS`** + **`MONGO_URI`** on Render.
-
----
-
-## Groq rate limits
-
-Groq’s free / on-demand tiers enforce **tokens per minute (TPM)**. Very large prompts or high `max_tokens` can return `413` or rate-limit errors. The architecture agent uses a configurable cap (`GROQ_ARCHITECTURE_MAX_TOKENS`) to stay within typical limits; upgrade your Groq tier or reduce request size if you still hit limits.
-
----
-
-
-## Contributing
-
-Issues and pull requests are welcome. Use `backend/venv` (or an equivalent local venv) for Python dependencies so versions stay aligned with `requirements.txt`.
