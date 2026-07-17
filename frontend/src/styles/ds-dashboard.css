@@ -24,7 +24,7 @@
 /* Layout */
 .ds-layout {
   display: flex;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--nav-h, 64px));
   background: var(--ds-bg-deep);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -35,7 +35,7 @@
   max-width: 100%;
 }
 
-/* Left Sidebar */
+/* Left Sidebar — pinned to the viewport so it doesn't stretch with page content */
 .ds-sidebar {
   width: var(--ds-sidebar-w);
   min-width: var(--ds-sidebar-w);
@@ -44,6 +44,11 @@
   display: flex;
   flex-direction: column;
   padding: 1rem 0;
+  position: sticky;
+  top: var(--nav-h, 64px);
+  align-self: flex-start;
+  height: calc(100vh - var(--nav-h, 64px));
+  overflow-y: auto;
 }
 
 .ds-sidebar-logo {
@@ -126,15 +131,14 @@
   border-top: 1px solid var(--ds-border);
 }
 
-/* Main area */
+/* Main area — the page scrolls here; the rails stay pinned */
 .ds-main {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
   padding: 1.5rem 2rem;
 }
 
-/* Chat panel */
+/* Chat panel — pinned to the viewport; messages scroll internally, input stays at the bottom */
 .ds-chat-panel {
   width: var(--ds-chat-w);
   min-width: var(--ds-chat-w);
@@ -142,6 +146,11 @@
   border-left: 1px solid var(--ds-border);
   display: flex;
   flex-direction: column;
+  position: sticky;
+  top: var(--nav-h, 64px);
+  align-self: flex-start;
+  height: calc(100vh - var(--nav-h, 64px));
+  overflow: hidden;
 }
 
 .ds-chat-header {
@@ -252,6 +261,109 @@
 .ds-chat-send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Keep bubbles from being stretched by long tokens / code / tables */
+.ds-chat-messages { overflow-x: hidden; }
+.ds-chat-msg { min-width: 0; }
+
+.ds-chat-bubble {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Markdown answer typography inside the assistant bubble (360px-wide panel) */
+.ds-chat-bubble > :first-child { margin-top: 0; }
+.ds-chat-bubble > :last-child { margin-bottom: 0; }
+
+.ds-chat-bubble p {
+  margin: 0 0 0.55rem;
+}
+
+.ds-chat-bubble ul,
+.ds-chat-bubble ol {
+  margin: 0.35rem 0 0.55rem;
+  padding-left: 1.15rem;
+}
+
+.ds-chat-bubble li {
+  margin-bottom: 0.28rem;
+}
+
+.ds-chat-bubble h1,
+.ds-chat-bubble h2,
+.ds-chat-bubble h3,
+.ds-chat-bubble h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0.55rem 0 0.35rem;
+  color: var(--ds-text);
+}
+
+.ds-chat-bubble pre {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  padding: 0.65rem 0.75rem;
+  background: var(--ds-bg-deep);
+  border: 1px solid var(--ds-border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.ds-chat-bubble pre code {
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ds-text);
+}
+
+.ds-chat-bubble code {
+  background: var(--ds-bg-deep);
+  border: 1px solid var(--ds-border);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.82em;
+  color: var(--ds-accent);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.ds-chat-bubble a {
+  color: var(--ds-accent);
+  text-decoration: none;
+  overflow-wrap: break-word;
+}
+
+.ds-chat-bubble a:hover {
+  text-decoration: underline;
+}
+
+.ds-chat-bubble table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin: 0.4rem 0;
+}
+
+.ds-chat-bubble th,
+.ds-chat-bubble td {
+  border: 1px solid var(--ds-border);
+  padding: 0.3rem 0.45rem;
+  text-align: left;
+}
+
+.ds-chat-bubble blockquote {
+  margin: 0.4rem 0;
+  padding: 0.3rem 0.75rem;
+  border-left: 3px solid var(--ds-accent);
+  color: var(--ds-text-muted);
 }
 
 /* Bento metrics row */

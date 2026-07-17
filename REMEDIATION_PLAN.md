@@ -107,13 +107,19 @@ drifts between pages.
 
 ## Phase 1 — Make the graph actually show dependencies
 
-> **Status:** 1.1 ✅ (Python dependency resolution: calls/inheritance resolved to real IDs +
-> module import edges). JS/TS ✅ lightweight support (relative `import`/`require`/dynamic-import
-> specifiers → module→module import edges; verified 4/4 resolution incl. index files). This is
-> what fixes "0 edges" on JS/Next.js repos like devtrack.
-> **Known limits:** JS path aliases (`@/...` from tsconfig `paths`) not yet resolved — only
-> relative imports; JS/TS files still produce module nodes only (no class/function elements yet),
-> so category color-coding is coarse for JS repos. Next: V.1/V.2 viz, then deeper JS element parsing.
+> **Status (redesigned 2026-07-06 after "is this logic correct/optimal?"):**
+> - ✅ Python AST resolution (calls/inheritance/imports). Fixed a crash in `is_method` detection
+>   (matched IfExp/Lambda `.body`) that was silently dropping ~14 files → **2× elements, 3.5× edges**.
+> - ✅ **tree-sitter** for JS/TS (replaced regex): accurate `import`/`require`/dynamic specifiers
+>   + extracts functions/classes/components as elements (JS nodes are no longer just files).
+>   Grammars install from prebuilt wheels (work on Render). Regex kept as fallback.
+> - ✅ JS import resolution: relative + tsconfig `paths` aliases (`@/*`) + `baseUrl`.
+> - ✅ **Architecture aggregation** (`get_architecture_view`): files/elements grouped by folder
+>   into ~5-20 module nodes with weighted dependency edges (adaptive depth). This is now the
+>   DEFAULT `/visualize` view (`?view=files` for the detailed graph). Verified locally: backend →
+>   7 nodes (api→core ×50, →services ×10…), frontend → 5 nodes (App→pages ×12, pages→services ×9).
+> - All verified locally via `scripts/parse_local.py` + `scripts/arch_test`; nothing deployed yet.
+> **Next:** V.1/V.2 frontend viz — render this architecture graph interactively + color/size coded.
 
 ### Graph visualization (frontend, requested 2026-07-06)
 The graph currently renders every node the same flat orange with no interaction (KnowledgeGraph.jsx

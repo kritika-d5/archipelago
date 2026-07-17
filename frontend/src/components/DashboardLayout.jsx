@@ -8,11 +8,6 @@ function LeftSidebar({ selectedKey, parsedGraphs, onSelectKey }) {
 
   return (
     <aside className="ds-sidebar">
-      <div className="ds-sidebar-logo">
-        <span className="ds-logo-mark">⌘</span>
-        <span className="ds-logo-text">Archipelago</span>
-      </div>
-
       <div className="ds-sidebar-section">
         <label className="ds-sidebar-label">Organization</label>
         <select className="ds-sidebar-select" value={selectedKey || ''} onChange={onSelectKey}>
@@ -24,13 +19,10 @@ function LeftSidebar({ selectedKey, parsedGraphs, onSelectKey }) {
       </div>
 
       <nav className="ds-sidebar-nav">
+        <span className="ds-sidebar-label" style={{ padding: '0 0.75rem' }}>Hub</span>
         <Link to="/hub" className={`ds-nav-item ${location.pathname === '/hub' ? 'active' : ''}`}>
           <span className="ds-nav-icon">▣</span>
-          Dashboard
-        </Link>
-        <Link to="/graph" className={`ds-nav-item ${location.pathname === '/graph' ? 'active' : ''}`}>
-          <span className="ds-nav-icon">◇</span>
-          Graph View
+          Overview
         </Link>
         {selectedKey?.startsWith('org:') && (
           <Link
@@ -41,30 +33,15 @@ function LeftSidebar({ selectedKey, parsedGraphs, onSelectKey }) {
             Learning Path
           </Link>
         )}
-        <Link to="/health" className={`ds-nav-item ${location.pathname === '/health' ? 'active' : ''}`}>
-          <span className="ds-nav-icon">!</span>
-          Violations
-        </Link>
         <Link to="/docs" className={`ds-nav-item ${location.pathname === '/docs' ? 'active' : ''}`}>
           <span className="ds-nav-icon">¶</span>
           Documentation
-        </Link>
-        <Link to="/architecture" className={`ds-nav-item ${location.pathname === '/architecture' ? 'active' : ''}`}>
-          <span className="ds-nav-icon">◆</span>
-          Architecture
         </Link>
         <Link to="/hub/settings" className={`ds-nav-item ${location.pathname.includes('settings') ? 'active' : ''}`}>
           <span className="ds-nav-icon">⚙</span>
           Settings
         </Link>
       </nav>
-
-      <div className="ds-sidebar-footer">
-        <Link to="/" className="ds-nav-item">
-          <span className="ds-nav-icon">⌂</span>
-          Home
-        </Link>
-      </div>
     </aside>
   );
 }

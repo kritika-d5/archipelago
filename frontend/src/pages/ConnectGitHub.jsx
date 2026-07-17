@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
@@ -19,6 +19,9 @@ function ConnectGitHub() {
   const [composioAvailable, setComposioAvailable] = useState(null);
   const [error, setError] = useState(null);
 
+  const didInitRef = useRef(false);      // guard: run the initial status probe exactly once
+  const loadingReposRef = useRef(false); // guard: no concurrent/repeat repo+org loads
+
   const checkComposio = useCallback(async () => {
     // Non-mutating status probe — must NOT create a connection on page load.
     try {
@@ -34,6 +37,8 @@ function ConnectGitHub() {
   }, []);
 
   useEffect(() => {
+    if (didInitRef.current) return; // prevents StrictMode double-invoke and any re-mount loop
+    didInitRef.current = true;
     checkComposio();
   }, [checkComposio]);
 
@@ -77,6 +82,8 @@ function ConnectGitHub() {
   };
 
   const loadReposAndOrgs = async () => {
+    if (loadingReposRef.current) return; // block concurrent/repeat loads
+    loadingReposRef.current = true;
     setError(null);
     try {
       const [reposRes, orgsRes] = await Promise.all([
@@ -88,6 +95,8 @@ function ConnectGitHub() {
       setShowRepoPicker(true);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load repos');
+    } finally {
+      loadingReposRef.current = false;
     }
   };
 

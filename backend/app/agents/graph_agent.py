@@ -279,19 +279,47 @@ class KnowledgeGraphBuilder:
         else:
             return node_type
     
-    def get_graph_for_visualization(self, codebase_graph: CodebaseGraph, filter_important_only: bool = False) -> Dict[str, Any]:
+    def get_graph_for_visualization(self, codebase_graph: CodebaseGraph,
+                                    filter_important_only: bool = False,
+                                    min_degree: int = 0) -> Dict[str, Any]:
+        """Element-level "files" view: every module/class/function/method as a node.
+
+        `min_degree` prunes low-connectivity nodes so the whole-repo view is usable:
+        degree is counted from *dependency* edges only (containment nesting is ignored),
+        so a class connected purely by "this module contains it" is treated as a leaf.
+        `filter_important_only` is a convenience alias that applies a sensible default
+        threshold when no explicit `min_degree` is given.
+        """
         graph = self.build_from_codebase_graph(codebase_graph)
         nodes = []
         edges = []
-        
+
+        if filter_important_only and min_degree <= 0:
+            min_degree = 2  # "hubs only" default
+
+        # Dependency degree ignores structural "contains" edges — those are nesting, not
+        # dependencies, and would keep every leaf element alive at min_degree >= 1.
+        dep_degree = {n: 0 for n in graph.nodes()}
+        for s, t, d in graph.edges(data=True):
+            rel = d.get("dependency_type", d.get("relation", ""))
+            if rel == "contains":
+                continue
+            dep_degree[s] = dep_degree.get(s, 0) + 1
+            dep_degree[t] = dep_degree.get(t, 0) + 1
+
+        keep_ids = {n for n in graph.nodes() if dep_degree.get(n, 0) >= min_degree} \
+            if min_degree > 0 else set(graph.nodes())
+
         # Track node degrees for layout (not filtering)
         node_degrees = {}
         for node_id in graph.nodes():
             node_degrees[node_id] = graph.degree(node_id)
-        
+
         for node_id, data in graph.nodes(data=True):
+            if node_id not in keep_ids:
+                continue
             category = self._categorize_node(data)
-            
+
             node_info = {
                 "data": {
                     "id": node_id,
@@ -330,8 +358,10 @@ class KnowledgeGraphBuilder:
             
             nodes.append(node_info)
         
-        # Include all edges
+        # Include edges between surviving nodes only
         for source, target, data in graph.edges(data=True):
+            if source not in keep_ids or target not in keep_ids:
+                continue
             edges.append({
                 "data": {
                     "id": f"{source}-{target}",
@@ -365,6 +395,167 @@ class KnowledgeGraphBuilder:
             }
         }
     
+    def get_architecture_view(self, codebase_graph: CodebaseGraph, depth: int = 2) -> Dict[str, Any]:
+        """Aggregate the file-level graph into a high-level architecture view: files/elements are
+        grouped by folder (to `depth` path segments) into module nodes, and dependencies between
+        groups become weighted edges. Turns a 100+ node file hairball into ~10-20 readable nodes."""
+        graph = self.build_from_codebase_graph(codebase_graph)
+
+        def group_of(data: Dict[str, Any]):
+            fp = (data.get("file_path") or "").replace("\\", "/").strip("/")
+            if not fp:
+                return None
+            dir_parts = fp.split("/")[:-1]  # drop filename
+            if not dir_parts:
+                return "(root)"
+            return "/".join(dir_parts[:depth])
+
+        # Adapt depth so we get a useful number of groups (avoid 1 giant node or 100 tiny ones)
+        def group_count(d):
+            seen = set()
+            for _, data in graph.nodes(data=True):
+                fp = (data.get("file_path") or "").replace("\\", "/").strip("/")
+                parts = fp.split("/")[:-1]
+                seen.add("/".join(parts[:d]) if parts else "(root)")
+            return len(seen)
+        for d in (depth, depth + 1, depth + 2, 1):
+            if 4 <= group_count(d) <= 30:
+                depth = d
+                break
+
+        groups: Dict[str, Dict[str, Any]] = {}
+        node_group: Dict[str, str] = {}
+        for nid, data in graph.nodes(data=True):
+            g = group_of(data)
+            if g is None:
+                continue
+            node_group[nid] = g
+            info = groups.setdefault(g, {"files": set(), "elements": 0, "langs": set()})
+            if data.get("type") == "module":
+                info["files"].add(data.get("file_path", ""))
+            else:
+                info["elements"] += 1
+            if data.get("language"):
+                info["langs"].add(data.get("language"))
+
+        edge_weights: Dict[tuple, int] = {}
+        for s, t, edata in graph.edges(data=True):
+            ga, gb = node_group.get(s), node_group.get(t)
+            if not ga or not gb or ga == gb:
+                continue
+            rel = edata.get("dependency_type", edata.get("relation", ""))
+            if rel == "contains":  # module->element containment isn't an architecture dependency
+                continue
+            edge_weights[(ga, gb)] = edge_weights.get((ga, gb), 0) + 1
+
+        nodes = []
+        for gid, info in groups.items():
+            nodes.append({"data": {
+                "id": gid,
+                "label": gid.split("/")[-1] or gid,
+                "type": "module",
+                "category": "module",
+                "file_count": len(info["files"]),
+                "element_count": info["elements"],
+                "language": next(iter(info["langs"]), "unknown"),
+                "degree": 0,
+            }})
+
+        edges = []
+        for (ga, gb), w in edge_weights.items():
+            edges.append({"data": {
+                "id": f"{ga}=>{gb}",
+                "source": ga,
+                "target": gb,
+                "dependency_type": "import",
+                "relation": "depends on",
+                "weight": w,
+            }})
+
+        degree: Dict[str, int] = {}
+        for e in edges:
+            degree[e["data"]["source"]] = degree.get(e["data"]["source"], 0) + 1
+            degree[e["data"]["target"]] = degree.get(e["data"]["target"], 0) + 1
+        for n in nodes:
+            n["data"]["degree"] = degree.get(n["data"]["id"], 0)
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "metadata": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "repository_name": codebase_graph.metadata.repository_name,
+                "graph_type": "architecture",
+                "group_depth": depth,
+            },
+        }
+
+    def get_module_dependency_view(self, codebase_graph: CodebaseGraph, min_degree: int = 1) -> Dict[str, Any]:
+        """Module-to-module IMPORT graph — the "what depends on what" view.
+
+        This is the readable middle tier between the folder-level architecture view and the
+        full element-level files view: nodes are files (modules), edges are the imports between
+        them, and nothing else. No containment nesting, no per-function calls. Modules whose
+        dependency degree is below `min_degree` (default 1 = keep only connected files) are
+        pruned so isolated leaves and pure external-import files drop out.
+        """
+        graph = self.build_from_codebase_graph(codebase_graph)
+
+        # Collapse to module->module IMPORT edges, accumulating a weight per pair.
+        dep_pairs: Dict[tuple, int] = {}
+        for s, t, d in graph.edges(data=True):
+            rel = d.get("dependency_type", d.get("relation", ""))
+            if rel != "import" or s == t:
+                continue
+            if graph.nodes[s].get("type") != "module" or graph.nodes[t].get("type") != "module":
+                continue
+            dep_pairs[(s, t)] = dep_pairs.get((s, t), 0) + 1
+
+        degree: Dict[str, int] = {}
+        for (s, t) in dep_pairs:
+            degree[s] = degree.get(s, 0) + 1
+            degree[t] = degree.get(t, 0) + 1
+
+        keep = {n for n in degree if degree[n] >= min_degree}
+
+        nodes = []
+        for nid in keep:
+            data = graph.nodes[nid]
+            nodes.append({"data": {
+                "id": nid,
+                "label": data.get("name", nid),
+                "type": "module",
+                "category": "module",
+                "file_path": data.get("file_path", ""),
+                "language": data.get("language", ""),
+                "degree": degree.get(nid, 0),
+            }})
+
+        edges = []
+        for (s, t), w in dep_pairs.items():
+            if s in keep and t in keep:
+                edges.append({"data": {
+                    "id": f"{s}=>{t}",
+                    "source": s,
+                    "target": t,
+                    "dependency_type": "import",
+                    "relation": "imports",
+                    "weight": w,
+                }})
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "metadata": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "repository_name": codebase_graph.metadata.repository_name,
+                "graph_type": "modules",
+                "min_degree": min_degree,
+            },
+        }
+
     def get_subgraph(self, codebase_graph: CodebaseGraph, element_ids: List[str], depth: int = 2) -> Dict[str, Any]:
         graph = self.build_from_codebase_graph(codebase_graph)
         subgraph_nodes = set(element_ids)

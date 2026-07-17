@@ -17,6 +17,29 @@ from app.schemas.graph_schema import (
 
 logger = logging.getLogger(__name__)
 
+_TS_LANGS = None
+
+
+def _get_ts_languages():
+    """Lazily load tree-sitter Language objects for JS/TS. Returns {} if unavailable so the
+    parser can fall back to regex import extraction."""
+    global _TS_LANGS
+    if _TS_LANGS is not None:
+        return _TS_LANGS
+    try:
+        from tree_sitter import Language
+        import tree_sitter_javascript as tsjs
+        import tree_sitter_typescript as tsts
+        _TS_LANGS = {
+            'js': Language(tsjs.language()),        # .js/.jsx/.mjs/.cjs (JS grammar handles JSX)
+            'ts': Language(tsts.language_typescript()),
+            'tsx': Language(tsts.language_tsx()),
+        }
+    except Exception as e:
+        logger.warning(f"tree-sitter unavailable; JS/TS parsing falls back to regex: {e}")
+        _TS_LANGS = {}
+    return _TS_LANGS
+
 
 class CodeParser:
     """Parses codebase and extracts structured information."""
@@ -429,8 +452,9 @@ class CodeParser:
 
     def parse_js_file(self, file_path: Path, repo_path: Path,
                       language: Language) -> tuple[List[CodeElement], List[Dependency], Module]:
-        """Lightweight JS/TS parsing: extract relative import specifiers so we can build
-        module->module import edges (no full AST — just enough for the dependency graph)."""
+        """Parse a JS/TS file with tree-sitter: accurate import specifiers (for module edges)
+        plus top-level functions/classes/components as elements. Falls back to regex for
+        imports if tree-sitter is unavailable."""
         rel_path = str(file_path.relative_to(repo_path))
         module = Module(
             id=f"module:{rel_path}",
@@ -444,11 +468,91 @@ class CodeParser:
         except Exception:
             return [], [], module
 
-        specs = self._extract_js_imports(content)
+        ext = file_path.suffix.lower()
+        grammar_key = {'.ts': 'ts', '.tsx': 'tsx'}.get(ext, 'js')  # js/jsx/mjs/cjs -> js grammar
+        lang_obj = _get_ts_languages().get(grammar_key)
+
+        elements: List[CodeElement] = []
+        if lang_obj is None:
+            specs = self._extract_js_imports(content)
+        else:
+            try:
+                from tree_sitter import Parser
+                tree = Parser(lang_obj).parse(content.encode('utf-8', 'ignore'))
+                specs, elements = self._ts_extract(tree.root_node, rel_path, language)
+            except Exception as e:
+                logger.warning(f"tree-sitter parse failed for {rel_path}; regex fallback: {e}")
+                specs, elements = self._extract_js_imports(content), []
+
         module.imports = specs
         if specs:
             module.metadata['js_imports'] = specs
-        return [], [], module
+        for e in elements:
+            module.element_ids.append(e.id)
+        return elements, [], module
+
+    def _ts_extract(self, root, rel_path: str, language: Language) -> tuple[List[str], List[CodeElement]]:
+        """Walk a tree-sitter tree: collect import specifiers + top-level function/class/component
+        elements."""
+        specs: List[str] = []
+        elements: List[CodeElement] = []
+
+        def walk(node):
+            yield node
+            for c in node.children:
+                yield from walk(c)
+
+        for n in walk(root):
+            t = n.type
+            if t in ("import_statement", "export_statement"):
+                for c in n.children:
+                    if c.type == "string":
+                        specs.append(c.text.decode('utf-8', 'ignore').strip("'\"`"))
+            elif t == "call_expression":
+                fn = n.child_by_field_name("function")
+                if fn is not None and fn.text in (b"require", b"import"):
+                    args = n.child_by_field_name("arguments")
+                    if args is not None:
+                        for a in args.children:
+                            if a.type == "string":
+                                specs.append(a.text.decode('utf-8', 'ignore').strip("'\"`"))
+            elif t == "function_declaration":
+                elements.append(self._js_element(n, "function", rel_path, language))
+            elif t == "class_declaration":
+                elements.append(self._js_element(n, "class", rel_path, language))
+            elif t == "lexical_declaration":
+                for d in n.children:
+                    if d.type == "variable_declarator":
+                        val = d.child_by_field_name("value")
+                        if val is not None and val.type in ("arrow_function", "function_expression"):
+                            elements.append(self._js_element(d, "function", rel_path, language))
+
+        specs = [s for s in dict.fromkeys(specs) if s]
+        elements = [e for e in elements if e]
+        return specs, elements
+
+    def _js_element(self, node, kind: str, rel_path: str, language: Language) -> Optional[CodeElement]:
+        nm = node.child_by_field_name("name")
+        if nm is None:
+            return None
+        name = nm.text.decode('utf-8', 'ignore')
+        if not name:
+            return None
+        etype = CodeElementType.CLASS if kind == "class" else CodeElementType.FUNCTION
+        try:
+            snippet = node.text[:500].decode('utf-8', 'ignore')
+        except Exception:
+            snippet = None
+        return CodeElement(
+            id=f"{etype.value}:{rel_path}:{name}",
+            name=name,
+            type=etype,
+            file_path=rel_path,
+            line_start=node.start_point[0] + 1,
+            line_end=node.end_point[0] + 1,
+            language=language,
+            code_snippet=snippet,
+        )
 
     def _extract_js_imports(self, content: str) -> List[str]:
         """Extract import specifiers from JS/TS: `import ... from 'x'`, `import 'x'`,

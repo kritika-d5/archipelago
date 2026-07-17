@@ -2,11 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import cytoscape from 'cytoscape';
 import coseBilkent from 'cytoscape-cose-bilkent';
+import dagre from 'cytoscape-dagre';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
 
 cytoscape.use(coseBilkent);
+cytoscape.use(dagre);
+
+// Views whose edges mean "depends on" read best as a left-to-right layered layout (dagre),
+// so dependency direction is visible. The element-level files hairball stays on the force
+// layout (cose-bilkent), which handles hundreds of loosely-hierarchical nodes better.
+const DIRECTIONAL_VIEWS = ['modules', 'architecture', 'organization'];
 
 function KnowledgeGraph() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -24,6 +31,11 @@ function KnowledgeGraph() {
   const [docContent, setDocContent] = useState('');
   const [docDiffResult, setDocDiffResult] = useState(null);
   const [loadingDocDiff, setLoadingDocDiff] = useState(false);
+
+  const [viewMode, setViewMode] = useState('modules'); // 'modules' | 'architecture' | 'files'
+  const [minDegree, setMinDegree] = useState(0);       // committed density threshold (refetches)
+  const [minDegreeDraft, setMinDegreeDraft] = useState(0); // live slider value while dragging
+  const [selectedNode, setSelectedNode] = useState(null);
 
   const cyRef = useRef(null);
   const containerRef = useRef(null);
@@ -45,8 +57,8 @@ function KnowledgeGraph() {
       setGraphLoading(true);
       setError(null);
       try {
-        const res = await api.get(`/api/graph/${encodeURIComponent(activeKey)}/visualize`);
-        if (!cancelled) setGraphData(res.data);
+        const res = await api.get(`/api/graph/${encodeURIComponent(activeKey)}/visualize?view=${viewMode}&min_degree=${minDegree}`);
+        if (!cancelled) { setGraphData(res.data); setSelectedNode(null); }
       } catch (err) {
         if (!cancelled) {
           setGraphData(null);
@@ -57,7 +69,7 @@ function KnowledgeGraph() {
       }
     })();
     return () => { cancelled = true; };
-  }, [activeKey]);
+  }, [activeKey, viewMode, minDegree]);
 
   useEffect(() => {
     if (!graphData?.nodes?.length || !containerRef.current) {
@@ -73,43 +85,95 @@ function KnowledgeGraph() {
       cyRef.current = null;
     }
 
-    const nodeEls = (graphData.nodes || []).map((n) =>
-      n.data ? n : { data: { id: n.id, label: n.id, ...n } }
-    );
-    const edgeEls = (graphData.edges || []).map((e, i) =>
-      e.data ? e : { data: { id: `e${i}`, source: e.source, target: e.target, ...e } }
-    );
+    // Black / orange / white palette. Category hue for the file view; the architecture view is
+    // all "module" so it leans on size (files) + edge width (dependencies) to read.
+    const CATEGORY_COLORS = {
+      module: '#d97706', class: '#f59e0b', function: '#fbbf24', method: '#fbbf24',
+      agent: '#ea580c', workflow: '#fb923c', database_schema: '#e5e7eb',
+      database_table: '#cbd5e1', api: '#fcd34d', service: '#f97316', default: '#d97706',
+    };
 
-    cyRef.current = cytoscape({
+    const rawNodes = (graphData.nodes || []).map((n) => (n.data ? n.data : n));
+    const rawEdges = (graphData.edges || []).map((e) => (e.data ? e.data : e));
+
+    const nodeEls = rawNodes.map((d) => {
+      const cat = d.category || d.type || 'default';
+      const files = Number(d.file_count) || 0;
+      const elems = Number(d.element_count) || 0;
+      const degree = Number(d.degree) || 0;
+      const size = 24 + Math.min(66, files * 5 + elems * 0.4 + degree * 4);
+      return { data: { ...d, _size: size, _color: CATEGORY_COLORS[cat] || CATEGORY_COLORS.default } };
+    });
+    const edgeEls = rawEdges.map((d, i) => {
+      const w = Number(d.weight) || 1;
+      return { data: { ...d, id: d.id || `e${i}`, _width: Math.min(9, 1.2 + Math.log2(w + 1) * 1.8) } };
+    });
+
+    const cy = cytoscape({
       container: containerRef.current,
       elements: [...nodeEls, ...edgeEls],
+      wheelSensitivity: 0.25,
       style: [
         {
           selector: 'node',
           style: {
             label: 'data(label)',
-            'background-color': '#d97706',
+            'background-color': 'data(_color)',
+            width: 'data(_size)',
+            height: 'data(_size)',
             color: '#ffffff',
             'font-size': '11px',
             'font-weight': '600',
+            'text-valign': 'bottom',
+            'text-margin-y': 4,
             'text-wrap': 'wrap',
-            'text-max-width': '120px',
+            'text-max-width': '130px',
             'text-outline-width': 2,
-            'text-outline-color': '#1a0a00',
-            'text-outline-opacity': 0.85,
+            'text-outline-color': '#0a0a0a',
+            'text-outline-opacity': 0.9,
+            'border-width': 0,
+            'transition-property': 'opacity, border-width, background-color',
+            'transition-duration': '0.15s',
           },
         },
         {
           selector: 'edge',
           style: {
-            width: 1.5,
+            width: 'data(_width)',
             'line-color': 'rgba(217, 119, 6, 0.45)',
+            'target-arrow-color': 'rgba(217, 119, 6, 0.7)',
             'target-arrow-shape': 'triangle',
+            'arrow-scale': 0.9,
             'curve-style': 'bezier',
+            opacity: 0.75,
           },
         },
+        { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#ffffff' } },
+        { selector: '.faded', style: { opacity: 0.1 } },
+        {
+          selector: '.hl-edge',
+          style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316', opacity: 1 },
+        },
       ],
-      layout: { name: 'cose-bilkent', animate: false },
+      layout: DIRECTIONAL_VIEWS.includes(graphData.metadata?.graph_type)
+        ? { name: 'dagre', rankDir: 'LR', nodeSep: 45, rankSep: 95, edgeSep: 12, animate: false, padding: 24 }
+        : { name: 'cose-bilkent', animate: false, nodeRepulsion: 8000, idealEdgeLength: 90, padding: 24 },
+    });
+    cyRef.current = cy;
+
+    cy.on('tap', 'node', (evt) => {
+      const node = evt.target;
+      setSelectedNode(node.data());
+      cy.elements().addClass('faded');
+      const nb = node.closedNeighborhood();
+      nb.removeClass('faded');
+      node.connectedEdges().addClass('hl-edge');
+    });
+    cy.on('tap', (evt) => {
+      if (evt.target === cy) {
+        cy.elements().removeClass('faded hl-edge');
+        setSelectedNode(null);
+      }
     });
 
     return () => {
@@ -119,6 +183,16 @@ function KnowledgeGraph() {
       }
     };
   }, [graphData]);
+
+  const handleFit = () => cyRef.current && cyRef.current.fit(undefined, 30);
+
+  // Dependencies (outgoing edges) of the selected node, for the detail panel.
+  const selectedDeps = selectedNode
+    ? (graphData?.edges || [])
+        .map((e) => e.data || e)
+        .filter((e) => e.source === selectedNode.id)
+        .map((e) => e.target)
+    : [];
 
   const handleChatSubmit = async () => {
     if (!activeKey || !chatInput.trim() || chatBusy) return;
@@ -234,11 +308,94 @@ function KnowledgeGraph() {
         </p>
       )}
 
-      <div
-        ref={containerRef}
-        className="graph-container"
-        style={{ height: '480px', marginTop: '1rem' }}
-      />
+      {activeKey && (
+        <div className="graph-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+          <div className="graph-view-toggle" style={{ display: 'inline-flex', border: '1px solid #333', borderRadius: 8, overflow: 'hidden' }}>
+            {[
+              ['modules', 'Dependencies'],
+              ['architecture', 'Architecture'],
+              ['files', 'Files'],
+            ].map(([m, label]) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setViewMode(m)}
+                style={{
+                  padding: '0.4rem 0.9rem', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
+                  border: 'none',
+                  background: viewMode === m ? '#d97706' : 'transparent',
+                  color: viewMode === m ? '#0a0a0a' : '#e5e7eb',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={handleFit} style={{ padding: '0.4rem 0.9rem' }}>
+            Fit
+          </button>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#9ca3af' }}>
+            Min connections: <strong style={{ color: '#e5e7eb' }}>{minDegreeDraft}</strong>
+            <input
+              type="range"
+              min={0}
+              max={6}
+              step={1}
+              value={minDegreeDraft}
+              onChange={(e) => setMinDegreeDraft(Number(e.target.value))}
+              onMouseUp={(e) => setMinDegree(Number(e.target.value))}
+              onKeyUp={(e) => setMinDegree(Number(e.target.value))}
+              style={{ accentColor: '#d97706' }}
+              aria-label="Minimum connections to show a node"
+            />
+          </label>
+          <span style={{ fontSize: '0.78rem', color: '#9ca3af' }}>
+            Node size = {viewMode === 'architecture' ? 'files in module' : 'connections'} · Edge width = dependency weight · Drag the slider to hide low-connectivity nodes · Click a node to focus
+          </span>
+        </div>
+      )}
+
+      <div style={{ position: 'relative', marginTop: '0.75rem' }}>
+        <div
+          ref={containerRef}
+          className="graph-container"
+          style={{ height: '520px', background: '#0d0d0d', borderRadius: 10, border: '1px solid #262626' }}
+        />
+
+        {selectedNode && (
+          <div
+            className="graph-detail-panel"
+            style={{
+              position: 'absolute', top: 12, right: 12, width: 260, maxHeight: 'calc(100% - 24px)', overflowY: 'auto',
+              background: 'rgba(20,20,20,0.96)', border: '1px solid #d97706', borderRadius: 10, padding: '0.9rem 1rem',
+              color: '#e5e7eb', boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8 }}>
+              <strong style={{ color: '#fbbf24', wordBreak: 'break-word' }}>{selectedNode.label || selectedNode.id}</strong>
+              <button type="button" onClick={() => { cyRef.current?.elements().removeClass('faded hl-edge'); setSelectedNode(null); }}
+                style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ fontSize: '0.8rem', marginTop: '0.6rem', display: 'grid', gap: 4 }}>
+              {selectedNode.file_count != null && <div><span style={{ color: '#9ca3af' }}>Files:</span> {selectedNode.file_count}</div>}
+              {selectedNode.element_count != null && <div><span style={{ color: '#9ca3af' }}>Elements:</span> {selectedNode.element_count}</div>}
+              {selectedNode.type && <div><span style={{ color: '#9ca3af' }}>Type:</span> {selectedNode.type}</div>}
+              {selectedNode.language && selectedNode.language !== 'unknown' && <div><span style={{ color: '#9ca3af' }}>Language:</span> {selectedNode.language}</div>}
+              {selectedNode.file_path && <div style={{ wordBreak: 'break-all' }}><span style={{ color: '#9ca3af' }}>Path:</span> {selectedNode.file_path}</div>}
+              <div><span style={{ color: '#9ca3af' }}>Depends on ({selectedDeps.length}):</span></div>
+              {selectedDeps.length > 0 ? (
+                <ul style={{ margin: '2px 0 0', paddingLeft: '1.1rem' }}>
+                  {selectedDeps.slice(0, 12).map((t) => (
+                    <li key={t} style={{ wordBreak: 'break-all' }}>{String(t).split('/').pop()}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={{ color: '#6b7280' }}>No outgoing dependencies</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="graph-page-bento" style={{ marginTop: '2rem' }}>
         <div className="graph-page-left">

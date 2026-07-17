@@ -1,7 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api, { generateArchitectureBlueprint } from '../services/api';
 import mermaid from 'mermaid';
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * LLM output is often one long line; Mermaid's flowchart parser needs line breaks between
+ * statements. Insert them after the diagram header and between adjacent node/edge statements.
+ */
+function normalizeMermaidDiagram(raw) {
+  let s = (raw || '').trim();
+  if (!s) return s;
+  s = s.replace(/^(flowchart\s+(?:TD|TB|BT|RL|LR))\s+/im, '$1\n  ');
+  s = s.replace(/^(graph\s+(?:TD|TB|BT|RL|LR))\s+/im, '$1\n  ');
+  s = s.replace(/(\])\s+([A-Za-z][\w]*)\s*(-->|\[)/g, '$1\n  $2$3');
+  return s.trim();
+}
 
 function GreenfieldBlueprint() {
   const location = useLocation();
@@ -12,6 +34,7 @@ function GreenfieldBlueprint() {
   const [modifying, setModifying] = useState(false);
   const [modifyPrompt, setModifyPrompt] = useState('');
   const [error, setError] = useState(null);
+  const mermaidHostRef = useRef(null);
 
   useEffect(() => {
     if (!initialPrompt) {
@@ -23,21 +46,47 @@ function GreenfieldBlueprint() {
   }, [initialPrompt]);
 
   useEffect(() => {
-    if (blueprint?.mermaid_diagram) {
-      const t = setTimeout(() => renderMermaid(), 100);
-      return () => clearTimeout(t);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderMermaid reads blueprint, avoid adding fn to deps
-  }, [blueprint]);
-
-  useEffect(() => {
     mermaid.initialize({
       startOnLoad: false,
-      theme: 'default',
+      theme: 'dark',
       securityLevel: 'loose',
-      flowchart: { useMaxWidth: true }
+      flowchart: { useMaxWidth: true, htmlLabels: true },
     });
   }, []);
+
+  // Render the diagram via mermaid.render (deterministic, unique id per run) rather than
+  // mermaid.run on a shared node — that plus suppressErrors used to fail silently and leave
+  // the panel blank. On any parse/render failure, fall back to showing the raw source.
+  useEffect(() => {
+    const def = blueprint?.mermaid_diagram;
+    const el = mermaidHostRef.current;
+    if (!def || !el) return undefined;
+
+    let cancelled = false;
+
+    const runRender = async () => {
+      try {
+        el.innerHTML = '';
+        const normalized = normalizeMermaidDiagram(def);
+        const id = `mmd-blueprint-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        const { svg, bindFunctions } = await mermaid.render(id, normalized);
+        if (cancelled || mermaidHostRef.current !== el) return;
+        el.innerHTML = svg;
+        if (typeof bindFunctions === 'function') bindFunctions(el);
+      } catch (err) {
+        console.error('Mermaid render error:', err);
+        if (!cancelled && mermaidHostRef.current === el) {
+          el.innerHTML = `<pre class="arch-studio-mermaid-fallback">${escapeHtml(def)}</pre>`;
+        }
+      }
+    };
+
+    const raf = requestAnimationFrame(runRender);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [blueprint]);
 
   const fetchBlueprint = async (requirements) => {
     setLoading(true);
@@ -72,20 +121,6 @@ function GreenfieldBlueprint() {
       setError(err.response?.data?.detail || err.message || 'Failed to modify');
     } finally {
       setModifying(false);
-    }
-  };
-
-  const renderMermaid = async () => {
-    if (!blueprint?.mermaid_diagram) return;
-    const el = document.getElementById('blueprint-mermaid');
-    if (!el) return;
-    try {
-      el.innerHTML = '';
-      el.textContent = blueprint.mermaid_diagram;
-      el.removeAttribute('data-processed');
-      await mermaid.run({ nodes: [el], suppressErrors: true });
-    } catch (err) {
-      el.innerHTML = `<pre style="padding:1rem;background:#f4f4f4;border-radius:8px;overflow:auto">${blueprint.mermaid_diagram}</pre>`;
     }
   };
 
@@ -198,7 +233,9 @@ function GreenfieldBlueprint() {
         {blueprint?.mermaid_diagram && (
           <div className="blueprint-section">
             <h2>System Design</h2>
-            <div id="blueprint-mermaid" className="mermaid blueprint-diagram" />
+            <div className="arch-mermaid-wrap blueprint-diagram">
+              <div ref={mermaidHostRef} className="arch-mermaid-host" aria-live="polite" />
+            </div>
           </div>
         )}
 

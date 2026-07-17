@@ -19,6 +19,8 @@ router = APIRouter(prefix="/api/graph", tags=["graph"])
 @router.get("/{repo_key:path}/visualize")
 async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
                                   important_only: bool = False,
+                                  view: str = "modules",
+                                  min_degree: int = 0,
                                   session_id: str = Depends(get_session_id)):
     try:
         decoded_key = unquote(repo_key)
@@ -62,13 +64,21 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
         logger.error(error_msg)
         raise HTTPException(status_code=404, detail=error_msg)
 
-    # Use legacy builder (original approach)
     builder = GraphBuilder()
     if depth:
         all_element_ids = [elem.id for elem in graph_data.elements[:50]]
         visualization = builder.get_subgraph(graph_data, all_element_ids, depth=depth)
+    elif view == "files":
+        # Full element-level graph (detailed). min_degree/important_only prune leaf noise.
+        visualization = builder.get_graph_for_visualization(
+            graph_data, filter_important_only=important_only, min_degree=min_degree)
+    elif view == "architecture":
+        # Aggregated high-level view (folder/module groups)
+        visualization = builder.get_architecture_view(graph_data)
     else:
-        visualization = builder.get_graph_for_visualization(graph_data, filter_important_only=False)
+        # Default: module-to-module import dependency graph (the "what depends on what" view)
+        visualization = builder.get_module_dependency_view(
+            graph_data, min_degree=max(1, min_degree))
 
     # SAVE TO MONGODB
     save_graph_to_db(decoded_key, visualization, session_id)
