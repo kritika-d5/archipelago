@@ -1,13 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
-import cytoscape from 'cytoscape';
-import coseBilkent from 'cytoscape-cose-bilkent';
 import api from '../services/api';
 import DashboardLayout from '../components/DashboardLayout';
 import '../styles/ds-dashboard.css';
-
-cytoscape.use(coseBilkent);
 
 const COLORS = {
   REST: '#d97706',
@@ -28,8 +24,6 @@ export default function ArchitectureDashboard() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-  const containerRef = useRef(null);
-  const cyRef = useRef(null);
 
   useEffect(() => {
     api.get('/api/parse/').then((r) => setParsedGraphs(r.data.graphs || [])).catch(() => {});
@@ -65,43 +59,6 @@ export default function ArchitectureDashboard() {
   }, [selectedKey]);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  useEffect(() => {
-    if (!graphData?.nodes?.length || !containerRef.current) return;
-    const nodeEls = (graphData.nodes || []).map((n) => (n.data ? n : { data: { id: n.id, label: n.id, ...n } }));
-    const edgeEls = (graphData.edges || []).map((e, i) => (e.data ? e : { data: { id: `e${i}`, source: e.source, target: e.target, ...e } }));
-    const elements = [...nodeEls, ...edgeEls];
-    const cy = cytoscape({
-      container: containerRef.current,
-      elements,
-      style: [
-        {
-          selector: 'node',
-          style: {
-            label: 'data(label)',
-            'background-color': '#d97706',
-            color: '#ffffff',
-            'font-size': '10px',
-            'text-outline-width': 2,
-            'text-outline-color': '#1a0a00',
-            'text-outline-opacity': 0.85,
-          },
-        },
-        {
-          selector: 'edge',
-          style: {
-            width: 1.5,
-            'line-color': 'rgba(217, 119, 6, 0.4)',
-            'target-arrow-shape': 'triangle',
-            'curve-style': 'bezier',
-          },
-        },
-      ],
-      layout: { name: 'cose-bilkent', animate: false },
-    });
-    cyRef.current = cy;
-    return () => { cy.destroy(); cyRef.current = null; };
-  }, [graphData]);
 
   const sendChat = async () => {
     if (!chatInput.trim() || !selectedKey) return;
@@ -268,9 +225,32 @@ export default function ArchitectureDashboard() {
               </div>
             </div>
 
-            <div className="ds-bento-card" style={{ marginBottom: '1.5rem' }}>
-              <h3>Dependency graph</h3>
-              <div className="ds-graph-wrap" ref={containerRef} />
+            <div
+              className="ds-bento-card"
+              style={{
+                marginBottom: '1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <h3 style={{ margin: 0 }}>Dependency graph</h3>
+                <p style={{ color: 'var(--ds-text-muted)', fontSize: '0.85rem', margin: '0.35rem 0 0', lineHeight: 1.5 }}>
+                  {totalServices} nodes · {totalDeps} dependencies. Explore interactive dependency,
+                  architecture, and file views — with connectivity filtering and node search — in the
+                  full Graph explorer.
+                </p>
+              </div>
+              <Link
+                to={`/graph?repo=${encodeURIComponent(selectedKey)}`}
+                className="btn btn-primary"
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                Open Graph explorer →
+              </Link>
             </div>
 
             <div className="ds-bento ds-bento-4">

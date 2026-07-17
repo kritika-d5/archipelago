@@ -6,6 +6,7 @@ import dagre from 'cytoscape-dagre';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../services/api';
+import NotionDocModal from '../components/NotionDocModal';
 
 cytoscape.use(coseBilkent);
 cytoscape.use(dagre);
@@ -39,6 +40,7 @@ function KnowledgeGraph() {
   const [appliedSuggestions, setAppliedSuggestions] = useState(new Set());
   const [rejectedSuggestions, setRejectedSuggestions] = useState(new Set());
   const [applyingSuggestion, setApplyingSuggestion] = useState(null);
+  const [notionModalOpen, setNotionModalOpen] = useState(false);
   const autoRanDocDiff = useRef(false);
 
   const [viewMode, setViewMode] = useState('modules'); // 'modules' | 'architecture' | 'files'
@@ -159,7 +161,7 @@ function KnowledgeGraph() {
     const cy = cytoscape({
       container: containerRef.current,
       elements: [...nodeEls, ...edgeEls],
-      wheelSensitivity: 0.25,
+      wheelSensitivity: 0.6, // higher = faster mouse-wheel zoom (was 0.25, felt sluggish)
       style: [
         {
           selector: 'node',
@@ -284,15 +286,18 @@ function KnowledgeGraph() {
     }
   };
 
-  const handleDocDiff = async () => {
-    if (!activeKey || !docContent.trim()) return;
+  // `docOverride` lets callers (e.g. the Notion picker) run the diff on fresh content without
+  // waiting for the docContent state update. onClick passes an event, so only strings count.
+  const handleDocDiff = async (docOverride) => {
+    const doc = typeof docOverride === 'string' ? docOverride : docContent;
+    if (!activeKey || !doc.trim()) return;
 
     setLoadingDocDiff(true);
 
     try {
       const res = await api.post(
         `/api/query/doc-diff?repo_key=${encodeURIComponent(activeKey)}`,
-        { documentation: docContent }
+        { documentation: doc }
       );
 
       setDocDiffResult(res.data);
@@ -302,6 +307,19 @@ function KnowledgeGraph() {
     } finally {
       setLoadingDocDiff(false);
     }
+  };
+
+  // Attach a Notion doc from the Docs tab at any time (not just right after parsing).
+  const handleNotionSelected = ({ pageId, content, title }) => {
+    setNotionModalOpen(false);
+    setDocContent(content);
+    setNotionPageId(pageId);
+    setNotionTitle(title);
+    setSideTab('docs');
+    setAppliedSuggestions(new Set());
+    setRejectedSuggestions(new Set());
+    setDocDiffResult(null);
+    handleDocDiff(content);
   };
 
   // Push a single suggestion back to the connected Notion page.
@@ -384,21 +402,12 @@ function KnowledgeGraph() {
       </div>
 
       {activeKey && graphData && !graphLoading && (
-        <div className="info-grid">
-          <div className="info-card">
-            <div className="info-card-label">Nodes</div>
-            <div className="info-card-value">{nodeCount}</div>
-          </div>
-          <div className="info-card">
-            <div className="info-card-label">Edges</div>
-            <div className="info-card-value">{edgeCount}</div>
-          </div>
-          <div className="info-card">
-            <div className="info-card-label">Repository</div>
-            <div className="info-card-value" style={{ fontSize: '1rem', lineHeight: 1.3 }}>
-              {repoLabel}
-            </div>
-          </div>
+        <div className="graph-stat-strip">
+          <span className="graph-stat"><strong>{nodeCount}</strong> nodes</span>
+          <span className="graph-stat-sep" aria-hidden>·</span>
+          <span className="graph-stat"><strong>{edgeCount}</strong> edges</span>
+          <span className="graph-stat-sep" aria-hidden>·</span>
+          <span className="graph-stat graph-stat--repo">{repoLabel}</span>
         </div>
       )}
 
@@ -589,14 +598,24 @@ function KnowledgeGraph() {
                 disabled={!activeKey}
                 aria-label="Documentation to compare"
               />
-              <button
-                type="button"
-                className="btn btn-secondary mb-doc-submit"
-                onClick={handleDocDiff}
-                disabled={!activeKey || loadingDocDiff}
-              >
-                {loadingDocDiff ? 'Analyzing…' : 'Compare with graph'}
-              </button>
+              <div className="mb-doc-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary mb-doc-submit"
+                  onClick={handleDocDiff}
+                  disabled={!activeKey || loadingDocDiff}
+                >
+                  {loadingDocDiff ? 'Analyzing…' : 'Compare with graph'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setNotionModalOpen(true)}
+                  disabled={loadingDocDiff}
+                >
+                  ＋ From Notion
+                </button>
+              </div>
             </div>
             {loadingDocDiff && (
               <div className="mb-doc-analyzing" aria-live="polite">
@@ -691,6 +710,12 @@ function KnowledgeGraph() {
           {typeof error === 'string' ? error : 'Something went wrong'}
         </div>
       )}
+
+      <NotionDocModal
+        open={notionModalOpen}
+        onClose={() => setNotionModalOpen(false)}
+        onSelect={handleNotionSelected}
+      />
     </div>
   );
 }

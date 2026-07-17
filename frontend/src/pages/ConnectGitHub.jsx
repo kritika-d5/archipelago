@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import LoadingModal from '../components/LoadingModal';
+import NotionDocModal from '../components/NotionDocModal';
 
 function ConnectGitHub() {
   const navigate = useNavigate();
@@ -15,10 +16,6 @@ function ConnectGitHub() {
   const [parsing, setParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState({ step: 0, total: 0, name: '' });
   const [lastParsedKey, setLastParsedKey] = useState(null);
-  const [notionPages, setNotionPages] = useState([]);
-  const [selectedNotionPage, setSelectedNotionPage] = useState(null);
-  const [applyingDoc, setApplyingDoc] = useState(false);
-  const [loadingNotionPages, setLoadingNotionPages] = useState(false);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [composioAvailable, setComposioAvailable] = useState(null);
   const [error, setError] = useState(null);
@@ -52,9 +49,6 @@ function ConnectGitHub() {
       if (e.data?.type === 'COMPOSIO_CONNECTED') {
         setConnecting(false);
         loadReposAndOrgs();
-      }
-      if (e.data?.type === 'NOTION_CONNECTED') {
-        loadNotionPages();
       }
     };
     window.addEventListener('message', handler);
@@ -184,44 +178,10 @@ function ConnectGitHub() {
     navigate(lastParsedKey ? `/graph?repo=${encodeURIComponent(lastParsedKey)}` : '/graph');
   };
 
-  const loadNotionPages = async () => {
-    setLoadingNotionPages(true);
-    try {
-      const { data } = await api.get('/api/integrations/notion/pages');
-      setNotionPages(data?.pages || []);
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load Notion pages');
-    } finally {
-      setLoadingNotionPages(false);
-    }
-  };
-
-  const handleConnectNotion = async () => {
-    try {
-      const { data } = await api.get('/api/integrations/connect-url/notion');
-      if (data?.connected || !data?.redirect_url) {
-        // Already connected — just load pages.
-        loadNotionPages();
-        return;
-      }
-      window.open(data.redirect_url, 'composio-notion', 'width=600,height=700');
-    } catch (_) {}
-  };
-
-  const applySelectedDoc = async () => {
-    const page = selectedNotionPage;
-    if (!page) return;
-    setApplyingDoc(true);
-    try {
-      const { data } = await api.get(`/api/integrations/notion/page/${encodeURIComponent(page.id)}`);
-      setShowDocsModal(false);
-      const graphUrl = lastParsedKey ? `/graph?repo=${encodeURIComponent(lastParsedKey)}` : '/graph';
-      navigate(graphUrl, { state: { notionPageId: page.id, notionContent: data?.content || '', notionTitle: page.title } });
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load page content');
-    } finally {
-      setApplyingDoc(false);
-    }
+  const handleNotionSelected = ({ pageId, content, title }) => {
+    setShowDocsModal(false);
+    const graphUrl = lastParsedKey ? `/graph?repo=${encodeURIComponent(lastParsedKey)}` : '/graph';
+    navigate(graphUrl, { state: { notionPageId: pageId, notionContent: content, notionTitle: title } });
   };
 
   if (composioAvailable === null) {
@@ -317,59 +277,11 @@ function ConnectGitHub() {
         {error && <div className="error connect-error">{error}</div>}
       </div>
 
-      {showDocsModal && (
-        <div className="modal-overlay" onClick={() => !applyingDoc && setShowDocsModal(false)}>
-          <div className="modal-content modal-docs" onClick={(e) => e.stopPropagation()}>
-            <h3>Add documentation from Notion?</h3>
-            <p>Pick a Notion page to compare with your codebase. We'll show differences and suggest updates.</p>
-
-            {loadingNotionPages ? (
-              <div className="notion-loading">
-                <div className="connect-loading-spinner connect-loading-spinner--sm" />
-                <span>Loading your Notion pages…</span>
-              </div>
-            ) : notionPages.length === 0 ? (
-              <button className="btn btn-secondary notion-connect-btn" onClick={handleConnectNotion}>
-                Connect Notion &amp; load pages
-              </button>
-            ) : (
-              <>
-                <div className="notion-pages-head">
-                  <span className="notion-pages-label">Your pages</span>
-                  <button type="button" className="notion-reload-link" onClick={loadNotionPages}>
-                    Reload
-                  </button>
-                </div>
-                <div className="notion-pages-list">
-                  {notionPages.map((p) => (
-                    <div
-                      key={p.id}
-                      className={`notion-page-tile ${selectedNotionPage?.id === p.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedNotionPage(p)}
-                    >
-                      <span className="notion-page-title">{p.title}</span>
-                      {selectedNotionPage?.id === p.id && <span className="notion-page-check" aria-hidden>✓</span>}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={handleSkipDocs} disabled={applyingDoc}>
-                Skip for now
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={applySelectedDoc}
-                disabled={!selectedNotionPage || applyingDoc}
-              >
-                {applyingDoc ? 'Adding…' : 'Continue with this doc'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NotionDocModal
+        open={showDocsModal}
+        onClose={handleSkipDocs}
+        onSelect={handleNotionSelected}
+      />
     </div>
   );
 }
