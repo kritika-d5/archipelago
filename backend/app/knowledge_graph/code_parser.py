@@ -95,15 +95,18 @@ class CodeParser:
         self.workflow_keywords = ['workflow', 'pipeline', 'orchestrate', 'taskflow', 'dag', 'celery']
         self.workflow_decorators = ['@workflow', '@task', '@pipeline', '@celery_task']
         
-        # Database detection patterns
+        # Database ORM detection. Require the ORM library to actually be imported (`import_sig`),
+        # then only treat a class as a table if it inherits from a real ORM base (`bases`).
+        # Pydantic/marshmallow/settings schemas are excluded so request/response models are not
+        # miscounted as database tables (the old 'Base' substring matched Pydantic's BaseModel).
         self.orm_patterns = {
-            'sqlalchemy': ['SQLAlchemy', 'Base', 'declarative_base', 'db.Model'],
-            'django': ['models.Model', 'django.db'],
-            'peewee': ['Model', 'peewee'],
-            'tortoise': ['tortoise.models', 'Model'],
-            'mongodb': ['mongoengine', 'Document', 'pymongo'],
-            'redis': ['redis', 'Redis'],
+            'sqlalchemy': {'import_sig': ['sqlalchemy', 'sqlmodel'], 'bases': ['Base', 'db.Model', 'DeclarativeBase', 'SQLModel'], 'db': DatabaseLanguage.SQL},
+            'django': {'import_sig': ['django.db'], 'bases': ['models.Model', 'Model'], 'db': DatabaseLanguage.SQL},
+            'peewee': {'import_sig': ['peewee'], 'bases': ['Model'], 'db': DatabaseLanguage.SQL},
+            'mongoengine': {'import_sig': ['mongoengine'], 'bases': ['Document', 'DynamicDocument', 'EmbeddedDocument'], 'db': DatabaseLanguage.MONGODB},
         }
+        # Base classes that look ORM-ish but are not database models.
+        self._non_db_bases = {'basemodel', 'basesettings', 'schema', 'baseschema', 'typeddict', 'namedtuple', 'enum'}
     
     def detect_language(self, file_path: Path) -> Language:
         """Detect programming language from file extension."""
@@ -1073,35 +1076,35 @@ class CodeParser:
         rel_path = str(file_path.relative_to(repo_path))
         content_lower = content.lower()
         
-        # Detect ORM framework
+        # Detect ORM framework — only if the library is actually imported in this file.
         orm_framework = None
         db_language = DatabaseLanguage.UNKNOWN
-        
-        for orm_name, patterns in self.orm_patterns.items():
-            if any(pattern.lower() in content_lower for pattern in patterns):
+        orm_base_names = set()
+
+        for orm_name, spec in self.orm_patterns.items():
+            if any(sig.lower() in content_lower for sig in spec['import_sig']):
                 orm_framework = orm_name
-                if orm_name == 'mongodb':
-                    db_language = DatabaseLanguage.MONGODB
-                elif orm_name == 'redis':
-                    db_language = DatabaseLanguage.REDIS
-                else:
-                    db_language = DatabaseLanguage.SQL
+                db_language = spec['db']
+                orm_base_names = {b.split('.')[-1].lower() for b in spec['bases']}
                 break
-        
+
         if not orm_framework:
             return elements, dependencies
-        
-        # Find model classes
+
+        # Find model classes — must inherit from a real ORM base, and must not be a schema/settings
+        # class (Pydantic BaseModel etc.), which co-occur with ORM code but aren't tables.
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                # Check if it's a database model
                 is_model = False
                 for base in node.bases:
-                    base_str = ast.unparse(base) if hasattr(ast, 'unparse') else str(base)
-                    if any(pattern.lower() in base_str.lower() for pattern in self.orm_patterns.get(orm_framework, [])):
+                    base_str = (ast.unparse(base) if hasattr(ast, 'unparse') else str(base)).strip()
+                    base_name = base_str.split('.')[-1].lower()
+                    if base_name in self._non_db_bases:
+                        continue
+                    if base_name in orm_base_names:
                         is_model = True
                         break
-                
+
                 if is_model:
                     element_id = f"database_table:{rel_path}:{node.name}"
                     docstring = ast.get_docstring(node)

@@ -86,6 +86,30 @@ async def get_graph_visualization(repo_key: str, depth: Optional[int] = None,
     return visualization
 
 
+@router.get("/{repo_key:path}/insights")
+async def get_graph_insights(repo_key: str, session_id: str = Depends(get_session_id)):
+    """Compute knowledge-engineering insights (composition, hubs, cycles, entry points, and
+    plain-language observations) for a single parsed repository."""
+    try:
+        decoded_key = unquote(repo_key)
+    except Exception:
+        decoded_key = repo_key
+
+    if decoded_key.startswith("org:") or repo_key.startswith("org:"):
+        raise HTTPException(status_code=400, detail="Insights are computed per repository, not per organization.")
+
+    graph_data = load_codebase_graph(decoded_key, session_id)
+    if graph_data is None:
+        raise HTTPException(status_code=404, detail=f"Graph not found for key: {decoded_key}")
+
+    builder = GraphBuilder()
+    try:
+        return builder.get_insights(graph_data)
+    except Exception as e:
+        logger.error(f"Failed to compute insights for {decoded_key}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to compute insights")
+
+
 def convert_org_graph_to_visualization(org_graph: Dict[str, Any], org_key: str) -> Dict[str, Any]:
     """
     Convert organization dependency graph format to frontend visualization format.

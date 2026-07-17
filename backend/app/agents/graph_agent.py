@@ -556,6 +556,159 @@ class KnowledgeGraphBuilder:
             },
         }
 
+    def get_insights(self, codebase_graph: CodebaseGraph) -> Dict[str, Any]:
+        """Compute real, single-repo knowledge-engineering insights from a parsed codebase:
+        composition (languages / element types / dependency types), the most-connected and
+        most-depended-upon modules, circular dependencies, isolated modules, entry points, and
+        a set of plain-language observations. This is what makes the Architecture Hub useful for
+        an individual repository (org graphs already carry their own REST/event statistics)."""
+        def _val(x):
+            return x.value if hasattr(x, "value") else str(x)
+
+        CODE_LANGS = {"python", "javascript", "typescript", "java", "cpp", "go", "rust"}
+        elements = codebase_graph.elements
+        deps = codebase_graph.dependencies
+        # Only real source files count as modules. Non-code files (.css/.html/.json/.md/config) are
+        # parsed as modules too and would otherwise inflate the file count and the "isolated"
+        # (dead-code) list.
+        modules = [m for m in codebase_graph.modules if _val(m.language) in CODE_LANGS]
+        module_ids = {m.id for m in modules}
+        id_to_name = {m.id: m.name for m in modules}
+
+        # Element type + language + dependency-type composition
+        type_counts: Dict[str, int] = {}
+        for e in elements:
+            t = _val(e.type)
+            type_counts[t] = type_counts.get(t, 0) + 1
+
+        lang_counts: Dict[str, int] = {}
+        for m in modules:
+            lang = _val(m.language)
+            if lang and lang != "unknown":
+                lang_counts[lang] = lang_counts.get(lang, 0) + 1
+
+        dep_counts: Dict[str, int] = {}
+        for d in deps:
+            dt = _val(d.dependency_type)
+            if dt == "contains":
+                continue
+            dep_counts[dt] = dep_counts.get(dt, 0) + 1
+
+        # Module-to-module import graph for connectivity / cycle analysis
+        mod_graph = nx.DiGraph()
+        for m in modules:
+            mod_graph.add_node(m.id)
+        for d in deps:
+            if (d.dependency_type == DependencyType.IMPORT
+                    and d.source_id in module_ids and d.target_id in module_ids
+                    and d.source_id != d.target_id):
+                mod_graph.add_edge(d.source_id, d.target_id)
+
+        top_modules = []
+        for nid, deg in sorted(mod_graph.degree, key=lambda x: x[1], reverse=True):
+            if deg <= 0:
+                continue
+            top_modules.append({
+                "name": id_to_name.get(nid, nid),
+                "degree": deg,
+                "fan_in": mod_graph.in_degree(nid),
+                "fan_out": mod_graph.out_degree(nid),
+            })
+            if len(top_modules) >= 10:
+                break
+
+        core_modules = [
+            {"name": id_to_name.get(nid, nid), "dependents": d}
+            for nid, d in sorted(mod_graph.in_degree, key=lambda x: x[1], reverse=True)[:6]
+            if d > 0
+        ]
+
+        try:
+            cycles = [c for c in nx.simple_cycles(mod_graph) if len(c) > 1]
+        except Exception:
+            cycles = []
+        circular = [[id_to_name.get(n, n) for n in cyc] for cyc in cycles[:12]]
+
+        isolated = [id_to_name.get(nid, nid) for nid in mod_graph.nodes if mod_graph.degree(nid) == 0]
+        max_fan_out = max((mod_graph.out_degree(n) for n in mod_graph.nodes), default=0)
+        god_module = None
+        if max_fan_out >= 6:
+            god_module = next((id_to_name.get(n, n) for n in mod_graph.nodes
+                               if mod_graph.out_degree(n) == max_fan_out), None)
+
+        # Folder / layer breakdown
+        folder_counts: Dict[str, int] = {}
+        for m in modules:
+            parts = (m.file_path or "").replace("\\", "/").strip("/").split("/")
+            folder = parts[0] if len(parts) > 1 else "(root)"
+            folder_counts[folder] = folder_counts.get(folder, 0) + 1
+        folders = sorted(
+            [{"name": k, "files": v} for k, v in folder_counts.items()],
+            key=lambda x: x["files"], reverse=True
+        )[:8]
+
+        # Real entry points: source files whose stem is a conventional entry name. (The stored
+        # metadata.main_entry_points uses a loose substring match that catches App.css, index.html,
+        # and any file containing "index" — so we recompute here from code files only.)
+        entry_stems = {"main", "__main__", "index", "app", "server", "cli", "manage", "wsgi", "asgi", "run"}
+        entry_points = [m.file_path for m in modules if (m.name or "").lower() in entry_stems][:8]
+        db_langs = [_val(l) for l in (codebase_graph.metadata.database_languages or [])]
+
+        functions = type_counts.get("function", 0) + type_counts.get("method", 0)
+        classes = type_counts.get("class", 0)
+        agents = type_counts.get("agent", 0)
+        workflows = type_counts.get("workflow", 0)
+        db_tables = type_counts.get("database_table", 0)
+
+        # Plain-language observations
+        insights: List[str] = []
+        if circular:
+            insights.append(f"{len(circular)} circular import chain(s) detected — breaking these improves testability and build times.")
+        if god_module:
+            insights.append(f"`{god_module}` imports {max_fan_out} other modules — a potential 'god module'; consider splitting its responsibilities.")
+        if core_modules:
+            top = core_modules[0]
+            insights.append(f"`{top['name']}` is the most depended-upon module ({top['dependents']} dependents) — changes here have the widest blast radius.")
+        if len(isolated) > 0:
+            insights.append(f"{len(isolated)} source file(s) have no resolved internal imports — usually entry points or leaf modules (some cross-file imports may not resolve).")
+        if agents:
+            insights.append(f"{agents} AI agent(s) detected — this looks like an LLM/agentic codebase.")
+        if db_tables:
+            insights.append(f"{db_tables} database model(s) found" + (f" ({', '.join(db_langs)})." if db_langs else "."))
+        if len(lang_counts) > 1:
+            insights.append(f"Polyglot codebase spanning {len(lang_counts)} languages: {', '.join(lang_counts.keys())}.")
+        if not insights:
+            insights.append("No structural issues detected — the dependency graph is clean.")
+
+        return {
+            "metrics": {
+                "files": len(modules),
+                "elements": len(elements),
+                "classes": classes,
+                "functions": functions,
+                "agents": agents,
+                "workflows": workflows,
+                "db_tables": db_tables,
+                "languages": len(lang_counts),
+                "circular_deps": len(circular),
+                "isolated": len(isolated),
+                "max_fan_out": max_fan_out,
+                "entry_points": len(entry_points),
+                "internal_imports": mod_graph.number_of_edges(),
+            },
+            "language_breakdown": [{"name": k, "value": v} for k, v in sorted(lang_counts.items(), key=lambda x: -x[1])],
+            "dependency_breakdown": [{"name": k, "value": v} for k, v in sorted(dep_counts.items(), key=lambda x: -x[1])],
+            "element_breakdown": [{"name": k, "value": v} for k, v in sorted(type_counts.items(), key=lambda x: -x[1])],
+            "top_modules": top_modules,
+            "core_modules": core_modules,
+            "circular_dependencies": circular,
+            "isolated_modules": isolated[:12],
+            "entry_points": entry_points,
+            "folders": folders,
+            "insights": insights,
+            "repository_name": codebase_graph.metadata.repository_name,
+        }
+
     def get_subgraph(self, codebase_graph: CodebaseGraph, element_ids: List[str], depth: int = 2) -> Dict[str, Any]:
         graph = self.build_from_codebase_graph(codebase_graph)
         subgraph_nodes = set(element_ids)

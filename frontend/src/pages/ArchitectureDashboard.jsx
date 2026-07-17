@@ -20,6 +20,7 @@ export default function ArchitectureDashboard() {
   const [selectedKey, setSelectedKey] = useState(repoParam || '');
   const [graphData, setGraphData] = useState(null);
   const [learningData, setLearningData] = useState(null);
+  const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -37,22 +38,29 @@ export default function ArchitectureDashboard() {
     if (!selectedKey) {
       setGraphData(null);
       setLearningData(null);
+      setInsights(null);
       setLoading(false);
       return;
     }
+    const isOrgKey = selectedKey.startsWith('org:');
     setLoading(true);
     try {
-      const [vizRes, lpRes] = await Promise.all([
+      const [vizRes, lpRes, insRes] = await Promise.all([
         api.get(`/api/graph/${encodeURIComponent(selectedKey)}/visualize?important_only=false`),
-        selectedKey.startsWith('org:')
+        isOrgKey
           ? api.get(`/api/org/${encodeURIComponent(selectedKey)}/learning-path`).catch(() => null)
           : Promise.resolve(null),
+        isOrgKey
+          ? Promise.resolve(null)
+          : api.get(`/api/graph/${encodeURIComponent(selectedKey)}/insights`).catch(() => null),
       ]);
       setGraphData(vizRes.data);
       setLearningData(lpRes?.data || null);
+      setInsights(insRes?.data || null);
     } catch (e) {
       setGraphData(null);
       setLearningData(null);
+      setInsights(null);
     } finally {
       setLoading(false);
     }
@@ -111,6 +119,26 @@ export default function ArchitectureDashboard() {
   const violations = stats.violations ?? metadata.violations?.length ?? 0;
   const eventPct = totalDeps > 0 ? Math.round(((stats.event_dependencies || 0) / totalDeps) * 100) : 0;
 
+  // Single-repo insights (org graphs keep the REST/event stat view above)
+  const isOrg = selectedKey.startsWith('org:');
+  const im = insights?.metrics || {};
+  const TYPE_LABELS = {
+    function: 'Functions', method: 'Methods', class: 'Classes', module: 'Modules',
+    agent: 'AI agents', workflow: 'Workflows', database_table: 'DB models',
+    api_endpoint: 'API endpoints', interface: 'Interfaces', enum: 'Enums',
+  };
+  const PIE_COLORS = ['#d97706', '#f59e0b', '#fbbf24', '#ea580c', '#fb923c', '#a16207', '#fcd34d', '#78716c'];
+  const elementPie = (insights?.element_breakdown || [])
+    .filter((d) => d.value > 0)
+    .map((d) => ({ name: TYPE_LABELS[d.name] || d.name, value: d.value }));
+  const hubsBar = (insights?.top_modules || []).slice(0, 10).map((m) => ({
+    name: (m.name || '').slice(0, 12),
+    degree: m.degree,
+  }));
+  const coreModules = insights?.core_modules || [];
+  const maxDependents = Math.max(1, ...coreModules.map((m) => m.dependents || 0));
+  const circular = insights?.circular_dependencies || [];
+
   return (
     <DashboardLayout
       selectedKey={selectedKey}
@@ -155,7 +183,7 @@ export default function ArchitectureDashboard() {
           </div>
         )}
 
-        {selectedKey && !loading && graphData && (
+        {selectedKey && !loading && graphData && isOrg && (
           <>
             <div className="ds-metrics-row">
               <div className="ds-metric-card">
@@ -286,6 +314,149 @@ export default function ArchitectureDashboard() {
               </div>
             </div>
           </>
+        )}
+
+        {selectedKey && !loading && graphData && !isOrg && insights && (
+          <>
+            <div className="ds-metrics-row">
+              <div className="ds-metric-card">
+                <div className="ds-metric-label">Files</div>
+                <div className="ds-metric-value">{im.files ?? 0}</div>
+              </div>
+              <div className="ds-metric-card">
+                <div className="ds-metric-label">Code elements</div>
+                <div className="ds-metric-value">{im.elements ?? 0}</div>
+              </div>
+              <div className="ds-metric-card">
+                <div className="ds-metric-label">Internal deps</div>
+                <div className="ds-metric-value">{im.internal_imports ?? 0}</div>
+              </div>
+              <div className="ds-metric-card">
+                <div className="ds-metric-label">Circular imports</div>
+                <div className="ds-metric-value" style={(im.circular_deps || 0) > 0 ? { color: '#f87171' } : undefined}>
+                  {im.circular_deps ?? 0}
+                </div>
+              </div>
+            </div>
+
+            <div className="ds-chip-row">
+              {im.classes > 0 && <span className="ds-chip">{im.classes} classes</span>}
+              {im.functions > 0 && <span className="ds-chip">{im.functions} functions</span>}
+              {im.agents > 0 && <span className="ds-chip ds-chip--accent">{im.agents} AI agents</span>}
+              {im.db_tables > 0 && <span className="ds-chip">{im.db_tables} DB models</span>}
+              {im.workflows > 0 && <span className="ds-chip">{im.workflows} workflows</span>}
+              {im.languages > 0 && <span className="ds-chip">{im.languages} language{im.languages > 1 ? 's' : ''}</span>}
+              {im.max_fan_out > 0 && <span className="ds-chip">max fan-out {im.max_fan_out}</span>}
+            </div>
+
+            <div className="ds-bento ds-bento-2" style={{ marginBottom: '1.5rem' }}>
+              <div className="ds-bento-card">
+                <h3>Code composition</h3>
+                {elementPie.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie data={elementPie} cx="50%" cy="50%" innerRadius={45} outerRadius={72} paddingAngle={2} dataKey="value"
+                        label={({ name, value }) => `${name} ${value}`}>
+                        {elementPie.map((e, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ background: 'var(--ds-bg-elevated)', border: '1px solid var(--ds-border)' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <p className="ds-empty">No elements detected</p>}
+              </div>
+              <div className="ds-bento-card">
+                <h3>Most connected modules</h3>
+                {hubsBar.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={hubsBar} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
+                      <XAxis dataKey="name" tick={{ fill: 'var(--ds-text-muted)', fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={54} />
+                      <YAxis tick={{ fill: 'var(--ds-text-muted)', fontSize: 10 }} allowDecimals={false} />
+                      <Bar dataKey="degree" fill="var(--ds-accent)" radius={[4, 4, 0, 0]} />
+                      <Tooltip contentStyle={{ background: 'var(--ds-bg-elevated)', border: '1px solid var(--ds-border)' }} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <p className="ds-empty">No connections</p>}
+              </div>
+            </div>
+
+            <div className="ds-bento-card" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                <h3 style={{ margin: 0 }}>Dependency graph</h3>
+                <p style={{ color: 'var(--ds-text-muted)', fontSize: '0.85rem', margin: '0.35rem 0 0', lineHeight: 1.5 }}>
+                  {totalServices} nodes · {totalDeps} dependencies. Explore interactive dependency, architecture, and file views in the full Graph explorer.
+                </p>
+              </div>
+              <Link to={`/graph?repo=${encodeURIComponent(selectedKey)}`} className="btn btn-primary" style={{ whiteSpace: 'nowrap' }}>
+                Open Graph explorer →
+              </Link>
+            </div>
+
+            <div className="ds-bento ds-bento-2" style={{ marginBottom: '1.5rem' }}>
+              <div className="ds-bento-card">
+                <h3>Key insights</h3>
+                <ul className="ds-insight-list">
+                  {(insights.insights || []).map((s, i) => <li key={i}>{s.replace(/`/g, '')}</li>)}
+                </ul>
+              </div>
+              <div className="ds-bento-card">
+                <h3>Most depended-upon</h3>
+                {coreModules.length > 0 ? (
+                  <div className="ds-bars">
+                    {coreModules.map((m, i) => (
+                      <div key={i} className="ds-bar-row">
+                        <span className="ds-bar-name" title={m.name}>{m.name}</span>
+                        <span className="ds-bar-track"><span className="ds-bar-fill" style={{ width: `${Math.round((m.dependents / maxDependents) * 100)}%` }} /></span>
+                        <span className="ds-bar-val">{m.dependents}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="ds-empty">No shared modules</p>}
+              </div>
+            </div>
+
+            <div className="ds-bento ds-bento-2">
+              <div className="ds-bento-card">
+                <h3>Circular dependencies</h3>
+                {circular.length > 0 ? (
+                  <ul className="ds-cycle-list">
+                    {circular.map((cyc, i) => <li key={i}>{cyc.join(' → ')} → {cyc[0]}</li>)}
+                  </ul>
+                ) : <p className="ds-ok">✓ None — the import graph is acyclic.</p>}
+              </div>
+              <div className="ds-bento-card">
+                <h3>Project structure</h3>
+                <div className="ds-bars">
+                  {(insights.folders || []).map((f, i) => (
+                    <div key={i} className="ds-bar-row">
+                      <span className="ds-bar-name">{f.name}</span>
+                      <span className="ds-bar-track"><span className="ds-bar-fill" style={{ width: `${Math.round((f.files / (insights.folders[0]?.files || 1)) * 100)}%` }} /></span>
+                      <span className="ds-bar-val">{f.files}</span>
+                    </div>
+                  ))}
+                </div>
+                {(insights.entry_points || []).length > 0 && (
+                  <div style={{ marginTop: '0.85rem' }}>
+                    <div className="ds-sub-label">Entry points</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.35rem' }}>
+                      {insights.entry_points.map((e, i) => <span key={i} className="ds-chip">{e}</span>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {selectedKey && !loading && graphData && !isOrg && !insights && (
+          <div className="ds-bento-card" style={{ marginBottom: '1.5rem' }}>
+            <h3>Insights unavailable</h3>
+            <p style={{ color: 'var(--ds-text-muted)', fontSize: '0.875rem' }}>
+              Couldn't compute insights for this repository — you can still explore it in the graph.
+            </p>
+            <Link to={`/graph?repo=${encodeURIComponent(selectedKey)}`} className="btn btn-primary" style={{ marginTop: '0.5rem' }}>
+              Open Graph explorer →
+            </Link>
+          </div>
         )}
       </div>
     </DashboardLayout>
