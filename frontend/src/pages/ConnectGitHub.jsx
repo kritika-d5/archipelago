@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import LoadingModal from '../components/LoadingModal';
 
 function ConnectGitHub() {
   const navigate = useNavigate();
@@ -12,10 +13,13 @@ function ConnectGitHub() {
   const [selectedRepos, setSelectedRepos] = useState([]);
   const [selectedOrgs, setSelectedOrgs] = useState([]);
   const [parsing, setParsing] = useState(false);
+  const [parseProgress, setParseProgress] = useState({ step: 0, total: 0, name: '' });
   const [lastParsedKey, setLastParsedKey] = useState(null);
   const [notionPages, setNotionPages] = useState([]);
-  const [, setSelectedNotionPage] = useState(null);
+  const [selectedNotionPage, setSelectedNotionPage] = useState(null);
+  const [applyingDoc, setApplyingDoc] = useState(false);
   const [loadingNotionPages, setLoadingNotionPages] = useState(false);
+  const [loadingRepos, setLoadingRepos] = useState(false);
   const [composioAvailable, setComposioAvailable] = useState(null);
   const [error, setError] = useState(null);
 
@@ -84,6 +88,7 @@ function ConnectGitHub() {
   const loadReposAndOrgs = async () => {
     if (loadingReposRef.current) return; // block concurrent/repeat loads
     loadingReposRef.current = true;
+    setLoadingRepos(true);
     setError(null);
     try {
       const [reposRes, orgsRes] = await Promise.all([
@@ -97,6 +102,7 @@ function ConnectGitHub() {
       setError(err.response?.data?.detail || 'Failed to load repos');
     } finally {
       loadingReposRef.current = false;
+      setLoadingRepos(false);
     }
   };
 
@@ -123,8 +129,12 @@ function ConnectGitHub() {
     }
     setParsing(true);
     setError(null);
+    const total = selectedRepos.length + selectedOrgs.length;
+    let step = 0;
     let lastRepoKey = null;
     for (const repo of selectedRepos) {
+      step += 1;
+      setParseProgress({ step, total, name: repo.full_name || repo.clone_url });
       try {
         const { data } = await api.post('/api/parse/', {
           repository_url: repo.clone_url || `https://github.com/${repo.full_name}.git`,
@@ -144,6 +154,8 @@ function ConnectGitHub() {
       }
     }
     for (const org of selectedOrgs) {
+      step += 1;
+      setParseProgress({ step, total, name: `${org.login} (organization)` });
       try {
         const { data } = await api.post('/api/parse/', {
           repository_url: `https://github.com/${org.login}`,
@@ -196,13 +208,10 @@ function ConnectGitHub() {
     } catch (_) {}
   };
 
-  const handleSelectNotionPageAndContinue = async (page) => {
-    if (!page) {
-      setShowDocsModal(false);
-      navigate(lastParsedKey ? `/graph?repo=${encodeURIComponent(lastParsedKey)}` : '/graph');
-      return;
-    }
-    setSelectedNotionPage(page);
+  const applySelectedDoc = async () => {
+    const page = selectedNotionPage;
+    if (!page) return;
+    setApplyingDoc(true);
     try {
       const { data } = await api.get(`/api/integrations/notion/page/${encodeURIComponent(page.id)}`);
       setShowDocsModal(false);
@@ -210,15 +219,17 @@ function ConnectGitHub() {
       navigate(graphUrl, { state: { notionPageId: page.id, notionContent: data?.content || '', notionTitle: page.title } });
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load page content');
+    } finally {
+      setApplyingDoc(false);
     }
   };
 
   if (composioAvailable === null) {
     return (
       <div className="connect-github">
-        <div className="connect-card">
+        <div className="connect-card connect-card--loading">
           <div className="connect-loading-spinner" />
-          <p>Checking integrations...</p>
+          <p>Checking integrations…</p>
         </div>
       </div>
     );
@@ -240,6 +251,18 @@ function ConnectGitHub() {
 
   return (
     <div className="connect-github">
+      <LoadingModal
+        open={parsing}
+        title="Parsing repositories…"
+        subtext={parseProgress.name ? `Cloning and analyzing ${parseProgress.name}` : 'Cloning and analyzing your selection'}
+        step={parseProgress.step}
+        total={parseProgress.total}
+      />
+      <LoadingModal
+        open={loadingRepos && !showRepoPicker}
+        title="Loading your repositories…"
+        subtext="Fetching repositories and organizations from GitHub"
+      />
       <div className="connect-card">
         <h2>Connect to GitHub</h2>
         {!showRepoPicker ? (
@@ -295,31 +318,53 @@ function ConnectGitHub() {
       </div>
 
       {showDocsModal && (
-        <div className="modal-overlay" onClick={() => setShowDocsModal(false)}>
+        <div className="modal-overlay" onClick={() => !applyingDoc && setShowDocsModal(false)}>
           <div className="modal-content modal-docs" onClick={(e) => e.stopPropagation()}>
             <h3>Add documentation from Notion?</h3>
-            <p>Select a Notion page to compare with your codebase. We'll show differences and suggest updates.</p>
-            <button className="btn btn-secondary" onClick={handleConnectNotion} style={{ marginBottom: '1rem' }}>
-              Connect Notion
-            </button>
-            <button className="btn btn-ghost" onClick={loadNotionPages} disabled={loadingNotionPages} style={{ marginBottom: '1rem', marginLeft: '0.5rem' }}>
-              {loadingNotionPages ? 'Loading...' : 'Load my pages'}
-            </button>
-            {notionPages.length > 0 && (
-              <div className="notion-pages-list">
-                {notionPages.map((p) => (
-                  <div key={p.id} className="notion-page-tile" onClick={() => handleSelectNotionPageAndContinue(p)}>
-                    {p.title}
-                  </div>
-                ))}
+            <p>Pick a Notion page to compare with your codebase. We'll show differences and suggest updates.</p>
+
+            {loadingNotionPages ? (
+              <div className="notion-loading">
+                <div className="connect-loading-spinner connect-loading-spinner--sm" />
+                <span>Loading your Notion pages…</span>
               </div>
+            ) : notionPages.length === 0 ? (
+              <button className="btn btn-secondary notion-connect-btn" onClick={handleConnectNotion}>
+                Connect Notion &amp; load pages
+              </button>
+            ) : (
+              <>
+                <div className="notion-pages-head">
+                  <span className="notion-pages-label">Your pages</span>
+                  <button type="button" className="notion-reload-link" onClick={loadNotionPages}>
+                    Reload
+                  </button>
+                </div>
+                <div className="notion-pages-list">
+                  {notionPages.map((p) => (
+                    <div
+                      key={p.id}
+                      className={`notion-page-tile ${selectedNotionPage?.id === p.id ? 'selected' : ''}`}
+                      onClick={() => setSelectedNotionPage(p)}
+                    >
+                      <span className="notion-page-title">{p.title}</span>
+                      {selectedNotionPage?.id === p.id && <span className="notion-page-check" aria-hidden>✓</span>}
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
+
             <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={handleSkipDocs}>
+              <button className="btn btn-ghost" onClick={handleSkipDocs} disabled={applyingDoc}>
                 Skip for now
               </button>
-              <button className="btn btn-primary" onClick={() => handleSelectNotionPageAndContinue(null)}>
-                Continue without doc
+              <button
+                className="btn btn-primary"
+                onClick={applySelectedDoc}
+                disabled={!selectedNotionPage || applyingDoc}
+              >
+                {applyingDoc ? 'Adding…' : 'Continue with this doc'}
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import cytoscape from 'cytoscape';
 import coseBilkent from 'cytoscape-cose-bilkent';
 import dagre from 'cytoscape-dagre';
@@ -17,6 +17,7 @@ const DIRECTIONAL_VIEWS = ['modules', 'architecture', 'organization'];
 
 function KnowledgeGraph() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const activeKey = searchParams.get('repo') || '';
 
   const [parsedGraphs, setParsedGraphs] = useState([]);
@@ -31,20 +32,66 @@ function KnowledgeGraph() {
   const [docContent, setDocContent] = useState('');
   const [docDiffResult, setDocDiffResult] = useState(null);
   const [loadingDocDiff, setLoadingDocDiff] = useState(false);
+  // Notion doc-diff: when arriving from the "Add documentation from Notion" flow we carry the
+  // page content + id so suggestions can be pushed back to the real Notion page via "Apply".
+  const [notionPageId, setNotionPageId] = useState(null);
+  const [notionTitle, setNotionTitle] = useState(null);
+  const [appliedSuggestions, setAppliedSuggestions] = useState(new Set());
+  const [rejectedSuggestions, setRejectedSuggestions] = useState(new Set());
+  const [applyingSuggestion, setApplyingSuggestion] = useState(null);
+  const autoRanDocDiff = useRef(false);
 
   const [viewMode, setViewMode] = useState('modules'); // 'modules' | 'architecture' | 'files'
   const [minDegree, setMinDegree] = useState(0);       // committed density threshold (refetches)
   const [minDegreeDraft, setMinDegreeDraft] = useState(0); // live slider value while dragging
   const [selectedNode, setSelectedNode] = useState(null);
+  const [sideTab, setSideTab] = useState('ask'); // right panel: 'ask' | 'docs'
 
   const cyRef = useRef(null);
   const containerRef = useRef(null);
+  const workspaceRef = useRef(null);
 
   useEffect(() => {
     api.get('/api/parse/')
       .then((response) => setParsedGraphs(response.data.graphs || []))
       .catch((err) => console.error(err));
   }, []);
+
+  // Consume Notion doc content handed over by the "Add documentation from Notion" flow.
+  useEffect(() => {
+    const st = location.state || {};
+    if (st.notionContent) {
+      setDocContent(st.notionContent);
+      setNotionPageId(st.notionPageId || null);
+      setNotionTitle(st.notionTitle || null);
+      setSideTab('docs'); // surface the doc panel when arriving from the Notion flow
+      autoRanDocDiff.current = false; // allow one auto-compare for this incoming doc
+    }
+  }, [location.state]);
+
+  // Auto-run the comparison once when we arrive with a Notion doc and a selected repo.
+  useEffect(() => {
+    if (autoRanDocDiff.current) return;
+    if (!activeKey || !docContent || loadingDocDiff) return;
+    if (!location.state?.notionContent) return;
+    autoRanDocDiff.current = true;
+    (async () => {
+      setLoadingDocDiff(true);
+      setDocDiffResult(null);
+      try {
+        const res = await api.post(
+          `/api/query/doc-diff?repo_key=${encodeURIComponent(activeKey)}`,
+          { documentation: docContent }
+        );
+        setDocDiffResult(res.data);
+      } catch (err) {
+        setError(err.response?.data?.detail || 'Doc diff failed');
+      } finally {
+        setLoadingDocDiff(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, docContent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,6 +231,26 @@ function KnowledgeGraph() {
     };
   }, [graphData]);
 
+  // Size the workspace to fill the rest of the screen (viewport minus everything above it),
+  // so the graph + side panel fit the page without scrolling. Recomputed on resize and
+  // whenever the content above it changes height. Cytoscape is resized to match.
+  useEffect(() => {
+    const fit = () => {
+      const el = workspaceRef.current;
+      if (!el) return;
+      if (window.innerWidth < 1024) {
+        el.style.height = ''; // stacked layout: let CSS heights apply
+      } else {
+        const top = el.getBoundingClientRect().top;
+        el.style.height = `${Math.max(360, Math.round(window.innerHeight - top - 24))}px`;
+      }
+      if (cyRef.current) cyRef.current.resize();
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [activeKey, graphData]);
+
   const handleFit = () => cyRef.current && cyRef.current.fit(undefined, 30);
 
   // Dependencies (outgoing edges) of the selected node, for the detail panel.
@@ -229,12 +296,48 @@ function KnowledgeGraph() {
       );
 
       setDocDiffResult(res.data);
+      autoRanDocDiff.current = true; // manual run also counts, don't auto-run again
     } catch (err) {
       setError(err.response?.data?.detail || 'Doc diff failed');
     } finally {
       setLoadingDocDiff(false);
     }
   };
+
+  // Push a single suggestion back to the connected Notion page.
+  const handleApplySuggestion = async (s) => {
+    if (!notionPageId) {
+      setError('No Notion page connected. Select a doc from the "Add documentation from Notion" flow first.');
+      return;
+    }
+    setApplyingSuggestion(s.id);
+    setError(null);
+    try {
+      await api.post('/api/integrations/notion/update', {
+        page_id: notionPageId,
+        content: s.suggested || s.description,
+        suggestion_type: s.type || 'add',
+        current_text: s.current || '',
+        suggested_text: s.suggested || s.description,
+      });
+      setAppliedSuggestions((prev) => new Set([...prev, s.id]));
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to update Notion');
+    } finally {
+      setApplyingSuggestion(null);
+    }
+  };
+
+  const handleRejectSuggestion = (s) => {
+    setRejectedSuggestions((prev) => new Set([...prev, s.id]));
+  };
+
+  const structuredSuggestions = (docDiffResult?.structured || []).filter(
+    (s) => !rejectedSuggestions.has(s.id)
+  );
+  const notionPageUrl = notionPageId
+    ? `https://www.notion.so/${notionPageId.replace(/-/g, '')}`
+    : null;
 
   const metadata = graphData?.metadata || {};
   const nodeCount = metadata.total_nodes ?? graphData?.nodes?.length ?? 0;
@@ -309,7 +412,9 @@ function KnowledgeGraph() {
       )}
 
       {activeKey && (
-        <div className="graph-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1rem' }}>
+        <div className="graph-workspace" ref={workspaceRef}>
+          <div className="graph-workspace-main">
+            <div className="graph-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
           <div className="graph-view-toggle" style={{ display: 'inline-flex', border: '1px solid #333', borderRadius: 8, overflow: 'hidden' }}>
             {[
               ['modules', 'Dependencies'],
@@ -352,15 +457,13 @@ function KnowledgeGraph() {
           <span style={{ fontSize: '0.78rem', color: '#9ca3af' }}>
             Node size = {viewMode === 'architecture' ? 'files in module' : 'connections'} · Edge width = dependency weight · Drag the slider to hide low-connectivity nodes · Click a node to focus
           </span>
-        </div>
-      )}
-
-      <div style={{ position: 'relative', marginTop: '0.75rem' }}>
-        <div
-          ref={containerRef}
-          className="graph-container"
-          style={{ height: '520px', background: '#0d0d0d', borderRadius: 10, border: '1px solid #262626' }}
-        />
+            </div>
+            <div className="graph-canvas-wrap">
+              <div
+                ref={containerRef}
+                className="graph-container"
+                style={{ background: '#0d0d0d', borderRadius: 10, border: '1px solid #262626' }}
+              />
 
         {selectedNode && (
           <div
@@ -395,11 +498,29 @@ function KnowledgeGraph() {
             </div>
           </div>
         )}
-      </div>
+            </div>
+          </div>
 
-      <div className="graph-page-bento" style={{ marginTop: '2rem' }}>
-        <div className="graph-page-left">
-          <div className="mb-chat-panel">
+          <div className="graph-side">
+            <div className="graph-side-tabs">
+              <button
+                type="button"
+                className={`graph-side-tab${sideTab === 'ask' ? ' active' : ''}`}
+                onClick={() => setSideTab('ask')}
+              >
+                Ask the graph
+              </button>
+              <button
+                type="button"
+                className={`graph-side-tab${sideTab === 'docs' ? ' active' : ''}`}
+                onClick={() => setSideTab('docs')}
+              >
+                Documentation
+              </button>
+            </div>
+            <div className="graph-side-body">
+              {sideTab === 'ask' && (
+                <div className="mb-chat-panel">
             <h2 className="mb-panel-title">Ask the graph</h2>
             <p className="mb-panel-lede">
               Natural-language questions use the repository or organization you selected above.
@@ -438,18 +559,27 @@ function KnowledgeGraph() {
                 {chatBusy ? '…' : 'Send'}
               </button>
             </div>
-          </div>
-        </div>
-
-        <div className="graph-page-right">
-          <div
-            className={`mb-doc-panel${loadingDocDiff ? ' mb-doc-panel--busy' : ''}`}
-          >
+                </div>
+              )}
+              {sideTab === 'docs' && (
+                <div className={`mb-doc-panel${loadingDocDiff ? ' mb-doc-panel--busy' : ''}`}>
             <div className="mb-doc-panel-head">
               <h2 className="mb-panel-title">Documentation check</h2>
               <p className="mb-panel-lede">
                 Paste docs and compare with the graph. Results stay in the panel below—scroll inside the box.
               </p>
+              {notionPageId && (
+                <div className="mb-notion-banner">
+                  <span className="mb-notion-dot" aria-hidden>◆</span>
+                  <span>
+                    Connected to Notion{notionTitle ? `: ${notionTitle}` : ''}. Applied edits go
+                    straight to the page.{' '}
+                    {notionPageUrl && (
+                      <a href={notionPageUrl} target="_blank" rel="noreferrer">Open in Notion ↗</a>
+                    )}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="mb-doc-input-block">
               <textarea
@@ -483,15 +613,78 @@ function KnowledgeGraph() {
                   <span className="mb-doc-output-meta">Scroll inside this panel</span>
                 </div>
                 <div className="mb-doc-result answer-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {docDiffResult.suggestions}
-                  </ReactMarkdown>
+                  {structuredSuggestions.length > 0 && (
+                    <div className="doc-suggestion-list">
+                      {structuredSuggestions.map((s) => {
+                        const isApplied = appliedSuggestions.has(s.id);
+                        const isApplying = applyingSuggestion === s.id;
+                        const type = (s.type || 'fix').toLowerCase();
+                        return (
+                          <div key={s.id} className={`doc-suggestion doc-suggestion--${type}${isApplied ? ' is-applied' : ''}`}>
+                            <div className="doc-suggestion-head">
+                              <span className={`doc-suggestion-badge doc-suggestion-badge--${type}`}>
+                                {(s.type || 'fix').toUpperCase()}
+                              </span>
+                              <p className="doc-suggestion-desc">{s.description}</p>
+                            </div>
+                            {s.current && (
+                              <div className="doc-suggestion-diff doc-suggestion-diff--current">
+                                <span className="doc-suggestion-diff-label">Current</span>
+                                <div>{s.current}</div>
+                              </div>
+                            )}
+                            {s.suggested && (
+                              <div className="doc-suggestion-diff doc-suggestion-diff--suggested">
+                                <span className="doc-suggestion-diff-label">Suggested</span>
+                                <div>{s.suggested}</div>
+                              </div>
+                            )}
+                            <div className="doc-suggestion-actions">
+                              {isApplied ? (
+                                <span className="doc-suggestion-applied">✓ Added to Notion</span>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn btn-primary btn-sm"
+                                    onClick={() => handleApplySuggestion(s)}
+                                    disabled={!notionPageId || isApplying}
+                                    title={notionPageId ? '' : 'Connect a Notion doc to apply'}
+                                  >
+                                    {isApplying ? 'Applying…' : 'Apply to Notion'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => handleRejectSuggestion(s)}
+                                    disabled={isApplying}
+                                  >
+                                    Dismiss
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {docDiffResult.suggestions && (
+                    <div className="doc-summary">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {docDiffResult.suggestions}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {error && (
         <div className="dashboard-alert dashboard-alert--error" style={{ marginTop: '1.25rem' }} role="alert">

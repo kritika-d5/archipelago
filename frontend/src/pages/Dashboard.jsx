@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import LoadingModal from '../components/LoadingModal';
 
 function Dashboard() {
   const [repoUrl, setRepoUrl] = useState('');
@@ -65,6 +66,11 @@ function Dashboard() {
 
   return (
     <div className="dashboard-page">
+      <LoadingModal
+        open={loading}
+        title="Parsing repository…"
+        subtext={repoUrl ? `Cloning and analyzing ${repoUrl}` : 'Cloning and analyzing your repository'}
+      />
       <header className="dashboard-hero">
         <p className="dashboard-eyebrow">Archipelago</p>
         <h1 className="dashboard-title">Dashboard</h1>
